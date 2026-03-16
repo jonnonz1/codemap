@@ -261,28 +261,28 @@ func codemapClaudeSection() string {
 	return `<!-- codemap:begin -->
 ## Code Map
 
-This project uses [codemap](https://github.com/jonnonz1/codemap) for repo intelligence.
+**IMPORTANT: Before making any code changes, read ` + "`.claude/cache/context-code-map.md`" + ` to understand
+the structure and purpose of files in this codebase.** This file contains a pre-indexed map of every
+source file with summaries, exported types, functions, and imports.
 
-### Regenerate the code map
+If the code map file is missing or stale, regenerate it:
 
 ` + "```bash" + `
 codemap build && codemap render
 ` + "```" + `
 
-The full code map is at ` + "`.claude/cache/context-code-map.md`" + ` — read it to understand the
-structure of this codebase before making changes.
-
 ### Task-scoped context
 
-To select relevant files for a specific task:
+For focused work, check if ` + "`.claude/cache/selected-context.md`" + ` exists — it contains
+pre-selected files relevant to the current task. To generate it:
 
-1. Create a task file (see ` + "`tasks/example.md`" + ` for the format)
+1. Create a task file in ` + "`tasks/`" + ` (see ` + "`tasks/example.md`" + ` for the format)
 2. Run ` + "`codemap select --task <file>`" + `
-3. Selected context is at ` + "`.claude/cache/selected-context.md`" + `
+3. Read ` + "`.claude/cache/selected-context.md`" + ` for the relevant files and summaries
 
 ### Checking freshness
 
-Run ` + "`codemap doctor`" + ` to check if the code map is stale and needs rebuilding.
+Run ` + "`codemap doctor`" + ` to check if the code map needs rebuilding.
 <!-- codemap:end -->
 `
 }

@@ -120,10 +120,44 @@ func runBuild(repoRoot string, st store.Store, cfg *config.Config, cacheDir stri
 	reg.Register(&golang.Parser{})
 
 	summarizer := newSummarizer(cfg)
+	isMock := cfg.LLM.Provider == "" || cfg.LLM.Provider == "mock"
 
-	res, err := build.Run(repoRoot, st, reg, summarizer)
+	startTime := time.Now()
+	llmCalls := 0
+
+	progress := func(p build.Progress) {
+		if p.Summarized {
+			llmCalls++
+		}
+
+		// Show progress every 10 files, or on every LLM call.
+		if p.Summarized || p.Current%10 == 0 || p.Current == p.Total {
+			elapsed := time.Since(startTime)
+
+			if p.Skipped {
+				fmt.Fprintf(os.Stderr, "\r  [%d/%d] cached  %s", p.Current, p.Total, truncatePath(p.Path, 50))
+			} else if p.Summarized {
+				// Estimate remaining time based on LLM calls.
+				remaining := estimateRemaining(elapsed, llmCalls, p.Total-p.Current)
+				fmt.Fprintf(os.Stderr, "\r  [%d/%d] summarizing  %s  (eta %s)", p.Current, p.Total, truncatePath(p.Path, 40), remaining)
+			} else {
+				fmt.Fprintf(os.Stderr, "\r  [%d/%d] indexing  %s", p.Current, p.Total, truncatePath(p.Path, 50))
+			}
+
+			// Clear rest of line.
+			fmt.Fprintf(os.Stderr, "\033[K")
+		}
+	}
+
+	res, err := build.RunWithProgress(repoRoot, st, reg, summarizer, progress)
 	if err != nil {
+		fmt.Fprintln(os.Stderr) // newline after progress
 		fatal("build: %v", err)
+	}
+
+	// Clear progress line.
+	if !isMock || res.TotalFiles > 10 {
+		fmt.Fprintf(os.Stderr, "\r\033[K")
 	}
 
 	// Log build event for statistics.
@@ -414,4 +448,26 @@ func findRepoRoot() (string, error) {
 func fatal(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "codemap: "+format+"\n", args...)
 	os.Exit(1)
+}
+
+func truncatePath(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "..." + s[len(s)-n+3:]
+}
+
+func estimateRemaining(elapsed time.Duration, completed, remaining int) string {
+	if completed == 0 {
+		return "calculating..."
+	}
+	perFile := elapsed / time.Duration(completed)
+	eta := perFile * time.Duration(remaining)
+	if eta < time.Second {
+		return "<1s"
+	}
+	if eta < time.Minute {
+		return fmt.Sprintf("%ds", int(eta.Seconds()))
+	}
+	return fmt.Sprintf("%dm%ds", int(eta.Minutes()), int(eta.Seconds())%60)
 }
