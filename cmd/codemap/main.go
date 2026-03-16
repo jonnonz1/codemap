@@ -120,45 +120,43 @@ func runBuild(repoRoot string, st store.Store, cfg *config.Config, cacheDir stri
 	reg.Register(&golang.Parser{})
 
 	summarizer := newSummarizer(cfg)
-	isMock := cfg.LLM.Provider == "" || cfg.LLM.Provider == "mock"
+
+	opts := build.DefaultOptions()
+	if cfg.LLM.Workers > 0 {
+		opts.Workers = cfg.LLM.Workers
+	}
+	if cfg.LLM.RateLimit > 0 {
+		opts.RateLimit = cfg.LLM.RateLimit
+	}
 
 	startTime := time.Now()
-	llmCalls := 0
 
 	progress := func(p build.Progress) {
-		if p.Summarized {
-			llmCalls++
-		}
-
-		// Show progress every 10 files, or on every LLM call.
-		if p.Summarized || p.Current%10 == 0 || p.Current == p.Total {
-			elapsed := time.Since(startTime)
-
-			if p.Skipped {
-				fmt.Fprintf(os.Stderr, "\r  [%d/%d] cached  %s", p.Current, p.Total, truncatePath(p.Path, 50))
-			} else if p.Summarized {
-				// Estimate remaining time based on LLM calls.
-				remaining := estimateRemaining(elapsed, llmCalls, p.Total-p.Current)
-				fmt.Fprintf(os.Stderr, "\r  [%d/%d] summarizing  %s  (eta %s)", p.Current, p.Total, truncatePath(p.Path, 40), remaining)
-			} else {
-				fmt.Fprintf(os.Stderr, "\r  [%d/%d] indexing  %s", p.Current, p.Total, truncatePath(p.Path, 50))
+		switch p.Phase {
+		case "scan":
+			if p.Current%20 == 0 || p.Current == p.Total {
+				if p.Skipped {
+					fmt.Fprintf(os.Stderr, "\r  scanning [%d/%d] cached  %s\033[K", p.Current, p.Total, truncatePath(p.Path, 50))
+				} else {
+					fmt.Fprintf(os.Stderr, "\r  scanning [%d/%d] %s\033[K", p.Current, p.Total, truncatePath(p.Path, 50))
+				}
 			}
-
-			// Clear rest of line.
-			fmt.Fprintf(os.Stderr, "\033[K")
+		case "summarize":
+			elapsed := time.Since(startTime)
+			eta := estimateRemaining(elapsed, p.Current, p.Total-p.Current)
+			fmt.Fprintf(os.Stderr, "\r  summarizing [%d/%d] %s  (eta %s)\033[K", p.Current, p.Total, truncatePath(p.Path, 35), eta)
+		case "save":
+			fmt.Fprintf(os.Stderr, "\r  saving cache...\033[K")
 		}
 	}
 
-	res, err := build.RunWithProgress(repoRoot, st, reg, summarizer, progress)
+	res, err := build.RunWithOptions(repoRoot, st, reg, summarizer, opts, progress)
 	if err != nil {
-		fmt.Fprintln(os.Stderr) // newline after progress
+		fmt.Fprintln(os.Stderr)
 		fatal("build: %v", err)
 	}
 
-	// Clear progress line.
-	if !isMock || res.TotalFiles > 10 {
-		fmt.Fprintf(os.Stderr, "\r\033[K")
-	}
+	fmt.Fprintf(os.Stderr, "\r\033[K")
 
 	// Log build event for statistics.
 	_ = stats.Log(cacheDir, &stats.Event{
@@ -178,8 +176,12 @@ func runBuild(repoRoot string, st store.Store, cfg *config.Config, cacheDir stri
 	fmt.Printf("  updated:       %d\n", res.Updated)
 	fmt.Printf("  unchanged:     %d\n", res.Unchanged)
 	fmt.Printf("  removed:       %d\n", res.Removed)
+	fmt.Printf("  duration:      %s\n", time.Since(startTime).Round(time.Second))
 	if res.ParseErrors > 0 {
 		fmt.Printf("  parse errors:  %d\n", res.ParseErrors)
+	}
+	if res.SummaryErrors > 0 {
+		fmt.Printf("  LLM errors:    %d\n", res.SummaryErrors)
 	}
 }
 

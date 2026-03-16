@@ -35,6 +35,12 @@ type LLMConfig struct {
 
 	// Environment variable name that holds the API key (fallback if api_key is empty).
 	APIKeyEnv string `yaml:"api_key_env,omitempty"`
+
+	// Max concurrent API requests (default 10).
+	Workers int `yaml:"workers,omitempty"`
+
+	// Max requests per minute (default 50). Set to 0 for no limit.
+	RateLimit int `yaml:"rate_limit,omitempty"`
 }
 
 // ResolveAPIKey returns the API key, checking the config value first,
