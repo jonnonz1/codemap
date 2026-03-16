@@ -6,14 +6,17 @@
 //	codemap build              Scan repo and build/update the code map cache
 //	codemap render             Render the code map as markdown
 //	codemap select --task PATH Select relevant files for a coding task
+//	codemap statistics         Show usage stats and selection accuracy
 //	codemap doctor             Report cache health and diagnostics
 package main
 
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jonnonz1/codemap/internal/build"
 	"github.com/jonnonz1/codemap/internal/config"
@@ -24,6 +27,7 @@ import (
 	"github.com/jonnonz1/codemap/internal/parse"
 	"github.com/jonnonz1/codemap/internal/render"
 	"github.com/jonnonz1/codemap/internal/selectpkg"
+	"github.com/jonnonz1/codemap/internal/stats"
 	"github.com/jonnonz1/codemap/internal/store"
 	"github.com/jonnonz1/codemap/internal/taskfile"
 )
@@ -56,11 +60,13 @@ func main() {
 	case "init":
 		runInit(repoRoot)
 	case "build":
-		runBuild(repoRoot, st, cfg)
+		runBuild(repoRoot, st, cfg, cacheDir)
 	case "render":
 		runRender(st, mdPath)
 	case "select":
 		runSelect(st, cacheDir)
+	case "statistics", "stats":
+		runStatistics(repoRoot, cacheDir)
 	case "doctor":
 		runDoctor(repoRoot, st)
 	case "help", "--help", "-h":
@@ -99,7 +105,7 @@ func runInit(repoRoot string) {
 	initcmd.Print(res, os.Stdout)
 }
 
-func runBuild(repoRoot string, st store.Store, cfg *config.Config) {
+func runBuild(repoRoot string, st store.Store, cfg *config.Config, cacheDir string) {
 	reg := parse.NewRegistry()
 	reg.Register(&golang.Parser{})
 
@@ -109,6 +115,18 @@ func runBuild(repoRoot string, st store.Store, cfg *config.Config) {
 	if err != nil {
 		fatal("build: %v", err)
 	}
+
+	// Log build event for statistics.
+	_ = stats.Log(cacheDir, &stats.Event{
+		Type:        stats.EventBuild,
+		Timestamp:   time.Now(),
+		TotalFiles:  res.TotalFiles,
+		Added:       res.Added,
+		Updated:     res.Updated,
+		Unchanged:   res.Unchanged,
+		Removed:     res.Removed,
+		ParseErrors: res.ParseErrors,
+	})
 
 	fmt.Printf("codemap build complete\n")
 	fmt.Printf("  total files:   %d\n", res.TotalFiles)
@@ -183,11 +201,11 @@ func runSelect(st store.Store, cacheDir string) {
 		fatal("creating cache dir: %v", err)
 	}
 
-	var lines []string
+	var selectedFiles []string
 	for _, c := range candidates {
-		lines = append(lines, c.Entry.Path)
+		selectedFiles = append(selectedFiles, c.Entry.Path)
 	}
-	if err := os.WriteFile(filesPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filesPath, []byte(strings.Join(selectedFiles, "\n")+"\n"), 0o644); err != nil {
 		fatal("writing selected files: %v", err)
 	}
 
@@ -207,11 +225,100 @@ func runSelect(st store.Store, cacheDir string) {
 		fatal("rendering context: %v", err)
 	}
 
+	// Log select event for statistics.
+	_ = stats.Log(cacheDir, &stats.Event{
+		Type:          stats.EventSelect,
+		Timestamp:     time.Now(),
+		TaskFile:      taskPath,
+		TaskBody:      tf.Body,
+		SelectedFiles: selectedFiles,
+		SelectedCount: len(selectedFiles),
+		TotalIndexed:  len(cm.Entries),
+	})
+
 	fmt.Printf("codemap select complete\n")
 	fmt.Printf("  task:     %s\n", taskPath)
 	fmt.Printf("  selected: %d files\n", len(candidates))
 	fmt.Printf("  files:    %s\n", filesPath)
 	fmt.Printf("  context:  %s\n", contextPath)
+}
+
+func runStatistics(repoRoot string, cacheDir string) {
+	events, err := stats.LoadEvents(cacheDir)
+	if err != nil {
+		fatal("loading stats: %v", err)
+	}
+
+	// Parse flags.
+	evalMode := false
+	evalTask := ""
+	evalCommits := 5 // default: look at last 5 commits
+	args := os.Args[2:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--eval":
+			evalMode = true
+		case "--task":
+			if i+1 < len(args) {
+				evalTask = args[i+1]
+				i++
+			}
+		case "--commits":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &evalCommits)
+				i++
+			}
+		}
+	}
+
+	var gitChanges map[string][]string
+
+	if evalMode {
+		gitChanges = getGitChanges(repoRoot, evalTask, evalCommits)
+	}
+
+	r := stats.Compute(events, gitChanges)
+	stats.Print(r, os.Stdout)
+}
+
+// getGitChanges returns files changed in recent commits, keyed by task file.
+// If evalTask is specified, only that task file is evaluated.
+// Otherwise, all logged task files are evaluated against git changes.
+func getGitChanges(repoRoot, evalTask string, numCommits int) map[string][]string {
+	result := make(map[string][]string)
+
+	// Get files changed in last N commits.
+	cmd := exec.Command("git", "diff", "--name-only", fmt.Sprintf("HEAD~%d", numCommits))
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		// Fallback: try fewer commits.
+		cmd = exec.Command("git", "diff", "--name-only", "HEAD~1")
+		cmd.Dir = repoRoot
+		out, _ = cmd.Output()
+	}
+
+	changed := parseGitOutput(string(out))
+
+	if evalTask != "" {
+		result[evalTask] = changed
+	} else {
+		// Apply same git changes to all task files (best-effort).
+		result["*"] = changed
+	}
+
+	return result
+}
+
+func parseGitOutput(output string) []string {
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files
 }
 
 func runDoctor(repoRoot string, st store.Store) {
@@ -241,10 +348,12 @@ func printUsage() {
 Usage:
   codemap init                         Initialize codemap in a project
   codemap init --provider anthropic    Initialize with LLM provider
-  codemap init --model <model-id>      Initialize with specific model
   codemap build                        Scan repo and build/update the code map cache
   codemap render                       Render the code map as markdown
   codemap select --task PATH           Select relevant files for a coding task
+  codemap statistics                   Show usage stats and selection accuracy
+  codemap statistics --eval            Evaluate selection accuracy against git changes
+  codemap statistics --eval --task X   Evaluate a specific task file
   codemap doctor                       Report cache health and diagnostics`)
 }
 
