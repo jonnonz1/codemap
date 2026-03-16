@@ -73,12 +73,13 @@ func (s *Server) handleRequest(w io.Writer, req *jsonRPCRequest) {
 			},
 			"serverInfo": map[string]string{
 				"name":    "codemap",
-				"version": "0.10.0",
+				"version": "1.0.0",
 			},
 		})
 
-	case "notifications/initialized":
+	case "notifications/initialized", "initialized":
 		// No response needed for notifications.
+		return
 
 	case "tools/list":
 		writeResult(w, req.ID, map[string]any{

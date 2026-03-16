@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -369,8 +370,10 @@ codemap context 2>/dev/null
 		mcpServers = make(map[string]any)
 	}
 	if _, exists := mcpServers["codemap"]; !exists {
+		// Use absolute path so Claude Code can find the binary.
+		cmdPath := findCodemapBinary()
 		mcpServers["codemap"] = map[string]any{
-			"command": "codemap",
+			"command": cmdPath,
 			"args":    []string{"mcp"},
 		}
 		settings["mcpServers"] = mcpServers
@@ -413,6 +416,18 @@ codemap context 2>/dev/null
 	r.Updated = append(r.Updated, ".claude/settings.json")
 
 	return nil
+}
+
+func findCodemapBinary() string {
+	// Try to resolve absolute path to the codemap binary.
+	if path, err := exec.LookPath("codemap"); err == nil {
+		if abs, err := filepath.Abs(path); err == nil {
+			return abs
+		}
+		return path
+	}
+	// Fallback to just "codemap" and hope it's in PATH.
+	return "codemap"
 }
 
 func fileExists(path string) bool {
