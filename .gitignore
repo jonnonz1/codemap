@@ -2,7 +2,6 @@
 /codemap
 /cmd/codemap/codemap
 *.exe
-*.exe~
 *.dll
 *.so
 *.dylib
@@ -16,10 +15,11 @@ go.work.sum
 # Dependency directories
 vendor/
 
-# codemap cache artifacts
+# codemap cache + config (contains API key)
 .claude/cache/
+.codemap.yaml
 
-# Dolt database files (added by bd init)
+# Dolt database files (beads)
 .dolt/
 *.db
 
@@ -31,7 +31,7 @@ vendor/
 .beads/dolt/
 .beads/interactions.jsonl
 
-# OS files
+# OS
 .DS_Store
 Thumbs.db
 
@@ -39,7 +39,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-*.swo
 *~
 
 # Environment

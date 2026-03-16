@@ -1,8 +1,27 @@
 # codemap
 
-Incremental repo intelligence and context-selection CLI tool for improving coding-agent precision on large repositories.
+Code map your repo so AI coding agents find the right files on the first try.
 
-Codemap scans your repo, builds a per-file index using parser-based extraction for deterministic facts (types, functions, imports), and uses a pluggable LLM boundary only for semantic fields like summaries. It then selects the smallest useful set of files for a given coding task and renders model-friendly markdown context.
+Codemap indexes every file in your repository with a one-line summary, then uses a cheap fast model to select only the files relevant to a task. Instead of your agent spending 10+ tool calls exploring the codebase, it gets the exact files it needs in one shot.
+
+**Inspired by [jeremychone's approach](https://news.ycombinator.com/item?id=43367518):** code map with a cheap model, auto-context with a cheap model, then code with a big model. Higher precision on the input leads to higher precision on the output.
+
+## How It Works
+
+```
+                    codemap build                    codemap select
+                    (once, cached)                   (per task, fast)
+                         |                                |
+    Your repo -----> Per-file index -----> Cheap model picks files -----> Agent gets
+    2688 files       summary, types,       "381 candidates ->            focused context
+                     functions, imports     5 files (27 KB)"             30-80k tokens
+```
+
+1. **`codemap build`** — Indexes every file with a one-line summary using a cheap model (Haiku/Flash). Cached incrementally via mtime + BLAKE3 — only changed files get re-indexed.
+
+2. **`codemap select`** — Given a task description, sends the summaries (not source) to a cheap model which picks the 5-10 files that matter. Returns their **full source code**.
+
+3. **Your agent** — Gets exactly the files it needs. No grep. No glob. No wrong turns.
 
 ## Install
 
@@ -10,307 +29,180 @@ Codemap scans your repo, builds a per-file index using parser-based extraction f
 go install github.com/jonnonz1/codemap/cmd/codemap@latest
 ```
 
-Or build from source:
-
-```bash
-git clone https://github.com/jonnonz1/codemap.git
-cd codemap
-go build ./cmd/codemap
-```
-
 ## Quick Start
 
 ```bash
-# Initialize codemap in your project
+cd your-project
+
+# Interactive setup — picks provider, model, API key
 codemap init
 
-# Or initialize with a specific LLM provider
-codemap init --provider anthropic --model claude-haiku-4-5-20251001
-
-# Index your repository
+# Index your repo (first run takes minutes, subsequent runs are seconds)
 codemap build
 
-# Render the code map as markdown
-codemap render
-
-# Select relevant files for a task
-codemap select --task task.md
-
-# Check cache health
-codemap doctor
+# Register MCP server with Claude Code
+claude mcp add codemap -- codemap mcp
 ```
 
-## Commands
+That's it. Start a Claude Code session and it will discover `codemap_select` as a native tool.
 
-### `codemap init`
+## Setup
 
-Initializes codemap in the current project. Creates:
+`codemap init` prompts you interactively:
 
-- **`.codemap.yaml`** — project config (LLM provider, model, API key env var, cache dir)
-- **`CLAUDE.md`** — adds a codemap section with usage instructions for Claude Code
-- **`tasks/example.md`** — example task file showing the frontmatter format
-- **`.gitignore`** — appends `.claude/cache/` if not already present
+```
+Select LLM provider for file summaries:
+  1) anthropic  (Claude — recommended)
+  2) openai     (GPT)
+  3) google     (Gemini)
+  4) mock       (no LLM, placeholder summaries)
+
+Provider [1]: 1
+Model [claude-haiku-4-5-20251001]:
+API key (stored in .codemap.yaml): sk-ant-...
+```
+
+This creates:
+- **`.codemap.yaml`** — config with your API key (gitignored)
+- **`CLAUDE.md` section** — tells Claude Code to use codemap tools
+- **SessionStart hook** — injects code map status at session start
+- **Example task file** in `tasks/`
+
+## Claude Code Integration (MCP)
+
+Codemap runs as an MCP server that Claude Code calls natively:
 
 ```bash
-# Basic init (uses mock summarizer)
-codemap init
-
-# Init with Anthropic Claude
-codemap init --provider anthropic --model claude-haiku-4-5-20251001
-
-# Init with OpenAI
-codemap init --provider openai --model gpt-4o-mini
-
-# Init with Google
-codemap init --provider google --model gemini-2.0-flash
+# Register once
+claude mcp add codemap -- codemap mcp
 ```
 
-Running `init` is idempotent — it skips files that already exist and won't overwrite your config or CLAUDE.md.
+Claude gets three tools:
 
-The generated `.codemap.yaml` looks like:
+| Tool | What it does |
+|------|-------------|
+| `codemap_select` | Given a task, returns full source of the most relevant files |
+| `codemap_status` | Check if the index is fresh or stale |
+| `codemap_build` | Trigger an incremental rebuild |
 
-```yaml
-llm:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
-    api_key_env: ANTHROPIC_API_KEY
-cache_dir: .claude/cache
-scan: {}
-```
+When you give Claude a task, it calls `codemap_select` first, gets focused context, and starts coding — no exploration needed.
 
-Set your API key via the environment variable named in `api_key_env`:
+## CLI Commands
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+codemap init                    # Interactive project setup
+codemap build                   # Index repo (incremental, cached)
+codemap render                  # Render code map as markdown
+codemap select --task task.md   # Select files for a task (CLI mode)
+codemap context                 # Show what gets injected at session start
+codemap doctor                  # Check cache health
+codemap statistics              # View usage metrics
+codemap statistics --eval       # Evaluate selection accuracy vs git
 ```
 
-### `codemap build`
+## Measuring Impact
 
-Scans the repository, parses source files, and writes the code map cache.
+Codemap tracks real metrics — no guesses, no estimates:
 
-- Respects ignore rules (`.git`, `node_modules`, `vendor`, `dist`, etc.)
-- Uses **mtime + BLAKE3** for incremental rebuilds — unchanged files are skipped
-- Extracts imports, exported types, and exported functions from Go files via `go/ast`
-- Enriches entries with summary/keywords via a pluggable `Summarizer` interface
-- Writes full cache to `.claude/cache/context-code-map.json`
-- Appends changed entries to `.claude/cache/context-code-map.jsonl`
+```bash
+$ codemap statistics --eval
+codemap statistics
+==================
 
-```
-$ codemap build
-codemap build complete
-  total files:   29
-  added:         29
-  updated:       0
-  unchanged:     0
-  removed:       0
-```
+Build Performance
+  Total builds:        12
+  Files indexed:       2688
+  Avg cache hit rate:  94%
 
-### `codemap render`
+Context Selection
+  Total selections:    8
+  Avg files selected:  6.2
+  Avg context saved:   97%
 
-Renders the cached code map as stable, sorted markdown to `.claude/cache/context-code-map.md`.
+Selection Accuracy (vs actual git changes)
+  Evaluations:         5
+  Avg precision:       65%  (of selected files, how many were actually needed)
+  Avg recall:          82%  (of changed files, how many were pre-selected)
 
-Output format:
-```markdown
-- internal/scan/scan.go
-  - summary: Source file scan.go
-  - public types: FileInfo
-  - public functions: Dir
-  - imports: io/fs, path/filepath, strings
+Exploration Overhead
+  Total Read calls:    48
+  Extra reads:         7   (files NOT in codemap selection)
+  Overhead:            15%
+  Verdict:             codemap is providing good coverage
 ```
 
-### `codemap select --task <path>`
+**What each metric means:**
+- **Hit rate / recall** — Did codemap predict the files you actually changed?
+- **Precision** — Did codemap include junk files you didn't need?
+- **Exploration overhead** — Did Claude need to search beyond what codemap gave it?
+- **Context saved** — How much was the candidate pool compressed?
 
-Selects the most relevant files for a coding task. Task files use markdown with YAML frontmatter:
+All computed from observed data (git diff, tool call logs). No counterfactuals.
+
+## Task Files
+
+For CLI-based selection (without MCP), write a task file:
 
 ```markdown
 ---
-knowledge_globs:
-  - docs/**
-  - src/core/**
 context_globs:
   - src/invoices/**
   - tests/invoices/**
-max_files: 12
-max_tokens: 50000
+knowledge_globs:
+  - src/types/**
+max_files: 10
 ---
 
 Add soft-delete support to invoices. Preserve existing patterns. Update tests.
 ```
 
-Selection behavior:
-- Constrains candidates by `knowledge_globs` + `context_globs` (supports `**` patterns)
-- Scores files by path relevance, summary/keyword overlap, public symbol matches, and test proximity
-- Expands one hop via imports to pull in nearby useful files
-- All scoring is deterministic — no embeddings, no vector DB
-
-Outputs:
-- `.claude/cache/selected-files.txt` — one file path per line
-- `.claude/cache/selected-context.md` — task description + selected file summaries
-
-### `codemap doctor`
-
-Reports cache health and diagnostics.
-
-```
-$ codemap doctor
-codemap doctor
-==============
-
-  [+] JSON cache
-  [+] JSONL log
-  [+] Markdown render
-
-Indexed files:     29
-Missing summaries: 0
-Stale files:       0
-
-Languages:
-  go              26 files
-  markdown        3 files
-```
-
-## Using with Claude Code
-
-Codemap is designed to feed pre-indexed repo context into Claude Code (or any coding agent). Here's the typical workflow:
-
-### 1. Build the index
-
-Run this whenever your codebase changes (or add it to a git hook):
-
-```bash
-codemap build
-```
-
-### 2. Add the code map to your CLAUDE.md
-
-Reference the rendered code map in your project's `CLAUDE.md` so Claude always has repo context:
-
-```markdown
-# Project Context
-
-See .claude/cache/context-code-map.md for a full map of this codebase.
-```
-
-Then render it:
-
-```bash
-codemap render
-```
-
-### 3. Use task-scoped context for focused work
-
-Create a task file describing what you want to do:
-
-```bash
-cat > task.md << 'EOF'
----
-context_globs:
-  - internal/auth/**
-  - internal/middleware/**
-knowledge_globs:
-  - internal/model/**
-max_files: 10
----
-
-Add JWT token refresh support to the auth middleware.
-EOF
-```
-
-Run selection:
-
 ```bash
 codemap select --task task.md
+cat .claude/cache/selected-context.md  # full source of selected files
 ```
 
-Then paste or reference the output in your Claude Code session:
+## How Indexing Works
 
-```
-@.claude/cache/selected-context.md
-```
+Each file in the code map has:
+- **summary** — one-sentence description (from LLM)
+- **when_to_use** — when a developer would need this file (from LLM)
+- **public_types** — exported type names (from parser)
+- **public_functions** — exported function names (from parser)
+- **imports** — dependencies (from parser)
+- **keywords** — domain terms (from LLM)
 
-### 4. CLAUDE.md integration example
+Deterministic facts come from parsers (currently Go via `go/ast`). Semantic fields come from the cheap LLM. The index is cached as JSON and only rebuilt for files that actually changed (mtime + BLAKE3 hash).
 
-A full `CLAUDE.md` might look like:
+## Providers
 
-```markdown
-# My Project
+| Provider | Model | Cost for 2700 files |
+|----------|-------|-------------------|
+| Anthropic | claude-haiku-4-5-20251001 | ~$2-3 |
+| OpenAI | gpt-4o-mini | ~$1-2 |
+| Google | gemini-2.0-flash | ~$0.50 |
+| Mock | (none) | Free |
 
-## Code Map
+The mock provider works without any API key — useful for testing the workflow before committing to a provider.
 
-Run `codemap build && codemap render` to regenerate.
+## Configuration
 
-The full code map is at .claude/cache/context-code-map.md
+`.codemap.yaml` (gitignored, contains API key):
 
-## Working on a task
-
-1. Write a task file (see examples/ directory)
-2. Run `codemap select --task <file>`
-3. Selected context is at .claude/cache/selected-context.md
-```
-
-### Tips
-
-- Run `codemap build` after pulling or switching branches
-- Run `codemap doctor` to check if your cache is stale
-- The code map uses mock summaries by default — real LLM summarization is pluggable but not yet wired up
-- All cache artifacts live in `.claude/cache/` and are gitignored
-- Task files are lightweight — create one per feature or bug you're working on
-
-## Architecture
-
-```
-cmd/codemap/          CLI entry point
-internal/
-  model/              CodeMapEntry, CodeMap types
-  scan/               File system scanning with ignore rules
-  hash/               BLAKE3 content hashing
-  parse/              Parser interface + registry
-  langs/golang/       Go AST parser (extracts types, functions, imports)
-  store/              JSON/JSONL cache persistence (atomic writes)
-  llm/                Summarizer interface + MockSummarizer
-  build/              Incremental build orchestrator
-  render/             Markdown rendering
-  taskfile/           Task file YAML frontmatter parsing
-  selectpkg/          File selection, scoring, and import expansion
-  doctor/             Cache diagnostics
+```yaml
+llm:
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  api_key: sk-ant-...
+  workers: 32        # concurrent API calls during build
+  rate_limit: 50     # max requests per minute
+cache_dir: .claude/cache
 ```
 
-### Design Principles
+## Requirements
 
-- **Deterministic facts** (types, functions, imports) come from parsers, never an LLM
-- **Semantic fields** (summary, when_to_use, keywords) come from a pluggable `Summarizer` interface
-- A `MockSummarizer` ships by default — the tool works locally with no model configured
-- Language adapters implement the `parse.Parser` interface for future TypeScript/Python/Rust support
-- Cache writes are atomic (write to temp file, then rename)
-- Map iterations are sorted for deterministic output across runs
-
-## Testing
-
-```bash
-go test ./...
-```
-
-Tests cover: file scanning, BLAKE3 hashing, Go AST parsing, JSON store round-trips, markdown rendering, task file parsing (including CRLF and edge cases), file selection scoring, deterministic ordering, import expansion, and doctor diagnostics.
-
-## Cache Artifacts
-
-All artifacts are written to `.claude/cache/` and are gitignored:
-
-| File | Format | Purpose |
-|------|--------|---------|
-| `context-code-map.json` | JSON | Full code map cache |
-| `context-code-map.jsonl` | JSONL | Append log of changed entries |
-| `context-code-map.md` | Markdown | Rendered code map for agents |
-| `selected-files.txt` | Text | Selected file paths |
-| `selected-context.md` | Markdown | Task context for agents |
-
-## Dependencies
-
-Minimal — only three external dependencies:
-
-- [`lukechampine.com/blake3`](https://pkg.go.dev/lukechampine.com/blake3) — BLAKE3 hashing
-- [`gopkg.in/yaml.v3`](https://pkg.go.dev/gopkg.in/yaml.v3) — YAML frontmatter parsing
-- [`github.com/bmatcuk/doublestar/v4`](https://pkg.go.dev/github.com/bmatcuk/doublestar/v4) — `**` glob pattern matching
+- Go 1.22+
+- An LLM API key (or use mock mode)
+- Claude Code (for MCP integration) or any agent that reads markdown
 
 ## License
 
