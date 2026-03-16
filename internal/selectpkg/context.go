@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/codemap/internal/taskfile"
+	"github.com/jonnonz1/codemap/internal/taskfile"
 )
 
 // SelectedCodeMap bundles the task and selected candidates for rendering.

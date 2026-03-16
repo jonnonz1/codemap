@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codemap/internal/config"
+	"github.com/jonnonz1/codemap/internal/config"
 )
 
 func TestRunCreatesAll(t *testing.T) {

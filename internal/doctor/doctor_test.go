@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codemap/internal/model"
-	"github.com/codemap/internal/store"
+	"github.com/jonnonz1/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/store"
 )
 
 func TestRunEmpty(t *testing.T) {

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/codemap/internal/model"
-	"github.com/codemap/internal/scan"
-	"github.com/codemap/internal/store"
+	"github.com/jonnonz1/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/scan"
+	"github.com/jonnonz1/codemap/internal/store"
 )
 
 // Report holds the diagnostic results from a doctor run.

@@ -15,17 +15,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codemap/internal/build"
-	"github.com/codemap/internal/config"
-	"github.com/codemap/internal/doctor"
-	"github.com/codemap/internal/initcmd"
-	"github.com/codemap/internal/langs/golang"
-	"github.com/codemap/internal/llm"
-	"github.com/codemap/internal/parse"
-	"github.com/codemap/internal/render"
-	"github.com/codemap/internal/selectpkg"
-	"github.com/codemap/internal/store"
-	"github.com/codemap/internal/taskfile"
+	"github.com/jonnonz1/codemap/internal/build"
+	"github.com/jonnonz1/codemap/internal/config"
+	"github.com/jonnonz1/codemap/internal/doctor"
+	"github.com/jonnonz1/codemap/internal/initcmd"
+	"github.com/jonnonz1/codemap/internal/langs/golang"
+	"github.com/jonnonz1/codemap/internal/llm"
+	"github.com/jonnonz1/codemap/internal/parse"
+	"github.com/jonnonz1/codemap/internal/render"
+	"github.com/jonnonz1/codemap/internal/selectpkg"
+	"github.com/jonnonz1/codemap/internal/store"
+	"github.com/jonnonz1/codemap/internal/taskfile"
 )
 
 func main() {

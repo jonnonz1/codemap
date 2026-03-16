@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/model"
 )
 
 // Markdown writes the code map as a stable, sorted markdown document to w.

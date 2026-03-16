@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/codemap/internal/model"
-	"github.com/codemap/internal/taskfile"
+	"github.com/jonnonz1/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/taskfile"
 )
 
 // Candidate is a file with its computed relevance score.
@@ -169,7 +169,7 @@ func scoreEntry(e *model.CodeMapEntry, tf *taskfile.TaskFile, taskWords []string
 }
 
 // expandImports adds one-hop imports of selected files that exist in the code map.
-// Uses module-path-aware matching: an import like "github.com/codemap/internal/scan"
+// Uses module-path-aware matching: an import like "github.com/jonnonz1/codemap/internal/scan"
 // matches files under "internal/scan/" only if the import path ends with a "/"
 // boundary followed by the file's directory.
 func expandImports(selected []Candidate, cm *model.CodeMap, max int) []Candidate {

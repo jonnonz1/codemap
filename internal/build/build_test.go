@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/codemap/internal/langs/golang"
-	"github.com/codemap/internal/llm"
-	"github.com/codemap/internal/parse"
-	"github.com/codemap/internal/store"
+	"github.com/jonnonz1/codemap/internal/langs/golang"
+	"github.com/jonnonz1/codemap/internal/llm"
+	"github.com/jonnonz1/codemap/internal/parse"
+	"github.com/jonnonz1/codemap/internal/store"
 )
 
 func TestRunInitialBuild(t *testing.T) {

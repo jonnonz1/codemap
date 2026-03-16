@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codemap/internal/hash"
-	"github.com/codemap/internal/llm"
-	"github.com/codemap/internal/model"
-	"github.com/codemap/internal/parse"
-	"github.com/codemap/internal/scan"
-	"github.com/codemap/internal/store"
+	"github.com/jonnonz1/codemap/internal/hash"
+	"github.com/jonnonz1/codemap/internal/llm"
+	"github.com/jonnonz1/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/parse"
+	"github.com/jonnonz1/codemap/internal/scan"
+	"github.com/jonnonz1/codemap/internal/store"
 )
 
 // Result summarizes what happened during a build.

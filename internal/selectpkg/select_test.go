@@ -3,8 +3,8 @@ package selectpkg
 import (
 	"testing"
 
-	"github.com/codemap/internal/model"
-	"github.com/codemap/internal/taskfile"
+	"github.com/jonnonz1/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/taskfile"
 )
 
 func TestSelectBasic(t *testing.T) {
@@ -154,7 +154,7 @@ func TestExpandImportsModuleAware(t *testing.T) {
 	cm := model.NewCodeMap()
 	cm.Entries["internal/scan/scan.go"] = &model.CodeMapEntry{
 		Path: "internal/scan/scan.go", Language: "go",
-		Imports: []string{"github.com/codemap/internal/model"},
+		Imports: []string{"github.com/jonnonz1/codemap/internal/model"},
 	}
 	cm.Entries["internal/model/entry.go"] = &model.CodeMapEntry{
 		Path: "internal/model/entry.go", Language: "go",

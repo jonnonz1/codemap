@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codemap/internal/config"
+	"github.com/jonnonz1/codemap/internal/config"
 )
 
 // Options controls what codemap init creates.

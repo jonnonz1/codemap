@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/model"
 )
 
 // JSONStore persists the code map as a JSON file and appends changes to a JSONL file.

@@ -1,4 +1,4 @@
-module github.com/codemap
+module github.com/jonnonz1/codemap
 
 go 1.26.1
 

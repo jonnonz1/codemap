@@ -1,7 +1,7 @@
 // Package store handles persistence of the code map cache as JSON and JSONL.
 package store
 
-import "github.com/codemap/internal/model"
+import "github.com/jonnonz1/codemap/internal/model"
 
 // Store defines the interface for reading and writing the code map cache.
 type Store interface {

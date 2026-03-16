@@ -7,7 +7,7 @@ Codemap scans your repo, builds a per-file index using parser-based extraction f
 ## Install
 
 ```bash
-go install github.com/codemap/cmd/codemap@latest
+go install github.com/jonnonz1/codemap/cmd/codemap@latest
 ```
 
 Or build from source:

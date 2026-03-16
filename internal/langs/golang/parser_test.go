@@ -3,7 +3,7 @@ package golang
 import (
 	"testing"
 
-	"github.com/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/model"
 )
 
 func TestParse(t *testing.T) {

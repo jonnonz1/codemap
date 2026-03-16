@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/model"
 )
 
 func TestJSONStoreRoundTrip(t *testing.T) {

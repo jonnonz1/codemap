@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/model"
 )
 
 func TestMarkdown(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 
-	"github.com/codemap/internal/model"
+	"github.com/jonnonz1/codemap/internal/model"
 )
 
 // Parser extracts structural facts from Go source files.

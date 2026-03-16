@@ -1,7 +1,7 @@
 // Package parse defines the interface for language-specific source file parsers.
 package parse
 
-import "github.com/codemap/internal/model"
+import "github.com/jonnonz1/codemap/internal/model"
 
 // Parser extracts deterministic facts from a source file and populates
 // the corresponding fields on a CodeMapEntry. It must not call an LLM.
