@@ -1,4 +1,47 @@
+# Go build output
+/codemap
+/cmd/codemap/codemap
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# codemap cache artifacts
+.claude/cache/
 
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Beads runtime state
+.beads/dolt-server.lock
+.beads/dolt-server.log
+.beads/dolt-server.pid
+.beads/dolt-server.port
+.beads/dolt/
+.beads/interactions.jsonl
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
