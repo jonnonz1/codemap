@@ -3,6 +3,7 @@
 package initcmd
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -14,9 +15,11 @@ import (
 
 // Options controls what codemap init creates.
 type Options struct {
-	RepoRoot string
-	Provider string // "mock", "anthropic", "openai", "google"
-	Model    string
+	RepoRoot    string
+	Provider    string // "mock", "anthropic", "openai", "google"
+	Model       string
+	APIKey      string
+	Interactive bool // if true, prompt user for missing values
 }
 
 // Result reports what init did.
@@ -29,6 +32,11 @@ type Result struct {
 // Run initializes codemap in the given project directory.
 func Run(opts Options) (*Result, error) {
 	r := &Result{}
+
+	// Interactive prompts if no flags provided.
+	if opts.Interactive && opts.Provider == "" {
+		promptUser(&opts)
+	}
 
 	// 1. Write .codemap.yaml
 	if err := writeConfig(opts, r); err != nil {
@@ -57,6 +65,77 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	return r, nil
+}
+
+func promptUser(opts *Options) {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("codemap init")
+	fmt.Println()
+
+	// Provider selection.
+	fmt.Println("Select LLM provider for file summaries:")
+	fmt.Println("  1) anthropic  (Claude — recommended)")
+	fmt.Println("  2) openai     (GPT)")
+	fmt.Println("  3) google     (Gemini)")
+	fmt.Println("  4) mock       (no LLM, placeholder summaries)")
+	fmt.Println()
+	fmt.Print("Provider [1]: ")
+	choice := readLine(reader)
+
+	switch choice {
+	case "", "1", "anthropic":
+		opts.Provider = "anthropic"
+	case "2", "openai":
+		opts.Provider = "openai"
+	case "3", "google":
+		opts.Provider = "google"
+	case "4", "mock":
+		opts.Provider = "mock"
+	default:
+		opts.Provider = "anthropic"
+	}
+
+	if opts.Provider == "mock" {
+		return
+	}
+
+	// Model.
+	defaultModel := defaultModelFor(opts.Provider)
+	fmt.Printf("Model [%s]: ", defaultModel)
+	model := readLine(reader)
+	if model == "" {
+		opts.Model = defaultModel
+	} else {
+		opts.Model = model
+	}
+
+	// API key.
+	fmt.Printf("API key (stored in .codemap.yaml): ")
+	key := readLine(reader)
+	if key != "" {
+		opts.APIKey = key
+	}
+
+	fmt.Println()
+}
+
+func defaultModelFor(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "claude-haiku-4-5-20251001"
+	case "openai":
+		return "gpt-4o-mini"
+	case "google":
+		return "gemini-2.0-flash"
+	default:
+		return ""
+	}
+}
+
+func readLine(reader *bufio.Reader) string {
+	line, _ := reader.ReadString('\n')
+	return strings.TrimSpace(line)
 }
 
 // Print writes the init result to w.
@@ -94,8 +173,11 @@ func writeConfig(opts Options, r *Result) error {
 	if opts.Model != "" {
 		cfg.LLM.Model = opts.Model
 	}
+	if opts.APIKey != "" {
+		cfg.LLM.APIKey = opts.APIKey
+	}
 
-	// Set appropriate API key env based on provider.
+	// Set fallback env var name based on provider.
 	switch cfg.LLM.Provider {
 	case "anthropic":
 		cfg.LLM.APIKeyEnv = "ANTHROPIC_API_KEY"
@@ -115,19 +197,18 @@ func writeConfig(opts Options, r *Result) error {
 func updateGitignore(root string, r *Result) error {
 	path := filepath.Join(root, ".gitignore")
 	requiredLines := []string{
-		"# codemap cache artifacts",
+		"# codemap",
 		".claude/cache/",
+		".codemap.yaml",
 	}
 
 	existing, _ := os.ReadFile(path)
 	content := string(existing)
 
-	// Check if already present.
 	if strings.Contains(content, ".claude/cache/") {
 		return nil
 	}
 
-	// Append codemap entries.
 	addition := "\n" + strings.Join(requiredLines, "\n") + "\n"
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -149,7 +230,6 @@ func updateClaudeMD(root string, r *Result) error {
 	existing, _ := os.ReadFile(path)
 	content := string(existing)
 
-	// If marker already exists, skip.
 	if strings.Contains(content, marker) {
 		r.Skipped = append(r.Skipped, "CLAUDE.md (codemap section)")
 		return nil
@@ -158,13 +238,11 @@ func updateClaudeMD(root string, r *Result) error {
 	section := codemapClaudeSection()
 
 	if len(existing) == 0 {
-		// Create new CLAUDE.md.
 		if err := os.WriteFile(path, []byte(section), 0o644); err != nil {
 			return err
 		}
 		r.Created = append(r.Created, "CLAUDE.md")
 	} else {
-		// Append to existing CLAUDE.md.
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err

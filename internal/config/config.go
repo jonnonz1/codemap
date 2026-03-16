@@ -30,9 +30,23 @@ type LLMConfig struct {
 	// Model identifier (e.g. "claude-haiku-4-5-20251001", "gpt-4o-mini").
 	Model string `yaml:"model"`
 
-	// Environment variable name that holds the API key.
-	// The key itself is never stored in the config file.
-	APIKeyEnv string `yaml:"api_key_env"`
+	// API key stored directly in config. Takes precedence over APIKeyEnv.
+	APIKey string `yaml:"api_key,omitempty"`
+
+	// Environment variable name that holds the API key (fallback if api_key is empty).
+	APIKeyEnv string `yaml:"api_key_env,omitempty"`
+}
+
+// ResolveAPIKey returns the API key, checking the config value first,
+// then falling back to the environment variable.
+func (c *LLMConfig) ResolveAPIKey() string {
+	if c.APIKey != "" {
+		return c.APIKey
+	}
+	if c.APIKeyEnv != "" {
+		return os.Getenv(c.APIKeyEnv)
+	}
+	return ""
 }
 
 // ScanConfig holds file scanning preferences.
@@ -47,11 +61,7 @@ type ScanConfig struct {
 // Default returns a Config with sensible defaults.
 func Default() *Config {
 	return &Config{
-		LLM: LLMConfig{
-			Provider:  "mock",
-			Model:     "",
-			APIKeyEnv: "ANTHROPIC_API_KEY",
-		},
+		LLM:      LLMConfig{Provider: "mock"},
 		CacheDir: ".claude/cache",
 		Scan:     ScanConfig{},
 	}

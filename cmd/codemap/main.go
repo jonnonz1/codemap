@@ -79,9 +79,9 @@ func main() {
 }
 
 func runInit(repoRoot string) {
-	opts := initcmd.Options{RepoRoot: repoRoot}
+	opts := initcmd.Options{RepoRoot: repoRoot, Interactive: true}
 
-	// Parse flags: --provider, --model
+	// Parse flags: --provider, --model, --api-key
 	args := os.Args[2:]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -95,7 +95,17 @@ func runInit(repoRoot string) {
 				opts.Model = args[i+1]
 				i++
 			}
+		case "--api-key":
+			if i+1 < len(args) {
+				opts.APIKey = args[i+1]
+				i++
+			}
 		}
+	}
+
+	// Skip interactive if all required flags provided.
+	if opts.Provider != "" {
+		opts.Interactive = false
 	}
 
 	res, err := initcmd.Run(opts)
@@ -333,9 +343,10 @@ func runDoctor(repoRoot string, st store.Store) {
 func newSummarizer(cfg *config.Config) llm.Summarizer {
 	switch cfg.LLM.Provider {
 	case "anthropic":
-		key := os.Getenv(cfg.LLM.APIKeyEnv)
+		key := cfg.LLM.ResolveAPIKey()
 		if key == "" {
-			fmt.Fprintf(os.Stderr, "codemap: %s not set, using mock summarizer\n", cfg.LLM.APIKeyEnv)
+			fmt.Fprintf(os.Stderr, "codemap: no API key found (set api_key in .codemap.yaml or %s env var)\n", cfg.LLM.APIKeyEnv)
+			fmt.Fprintf(os.Stderr, "codemap: falling back to mock summarizer\n")
 			return &llm.MockSummarizer{}
 		}
 		fmt.Fprintf(os.Stderr, "codemap: using Anthropic summarizer (model: %s)\n", cfg.LLM.Model)

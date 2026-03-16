@@ -81,6 +81,7 @@ func TestRunWithProvider(t *testing.T) {
 		RepoRoot: root,
 		Provider: "anthropic",
 		Model:    "claude-haiku-4-5-20251001",
+		APIKey:   "sk-ant-test-key",
 	})
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -97,8 +98,19 @@ func TestRunWithProvider(t *testing.T) {
 	if cfg.LLM.Model != "claude-haiku-4-5-20251001" {
 		t.Errorf("model = %q, want %q", cfg.LLM.Model, "claude-haiku-4-5-20251001")
 	}
-	if cfg.LLM.APIKeyEnv != "ANTHROPIC_API_KEY" {
-		t.Errorf("api_key_env = %q, want %q", cfg.LLM.APIKeyEnv, "ANTHROPIC_API_KEY")
+	if cfg.LLM.APIKey != "sk-ant-test-key" {
+		t.Errorf("api_key = %q, want %q", cfg.LLM.APIKey, "sk-ant-test-key")
+	}
+
+	// ResolveAPIKey should return the config value.
+	if got := cfg.LLM.ResolveAPIKey(); got != "sk-ant-test-key" {
+		t.Errorf("ResolveAPIKey() = %q, want %q", got, "sk-ant-test-key")
+	}
+
+	// .gitignore should include .codemap.yaml (contains API key).
+	gitignore, _ := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if !strings.Contains(string(gitignore), ".codemap.yaml") {
+		t.Error(".gitignore should contain .codemap.yaml")
 	}
 }
 
