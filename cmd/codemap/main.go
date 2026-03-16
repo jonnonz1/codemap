@@ -2,6 +2,7 @@
 //
 // Commands:
 //
+//	codemap init               Initialize codemap in a project directory
 //	codemap build              Scan repo and build/update the code map cache
 //	codemap render             Render the code map as markdown
 //	codemap select --task PATH Select relevant files for a coding task
@@ -15,7 +16,9 @@ import (
 	"strings"
 
 	"github.com/codemap/internal/build"
+	"github.com/codemap/internal/config"
 	"github.com/codemap/internal/doctor"
+	"github.com/codemap/internal/initcmd"
 	"github.com/codemap/internal/langs/golang"
 	"github.com/codemap/internal/llm"
 	"github.com/codemap/internal/parse"
@@ -36,7 +39,13 @@ func main() {
 		fatal("finding repo root: %v", err)
 	}
 
-	cacheDir := filepath.Join(repoRoot, ".claude", "cache")
+	// Load project config (falls back to defaults if .codemap.yaml missing).
+	cfg, err := config.Load(filepath.Join(repoRoot, config.FileName))
+	if err != nil {
+		fatal("loading config: %v", err)
+	}
+
+	cacheDir := filepath.Join(repoRoot, cfg.CacheDir)
 	jsonPath := filepath.Join(cacheDir, "context-code-map.json")
 	jsonlPath := filepath.Join(cacheDir, "context-code-map.jsonl")
 	mdPath := filepath.Join(cacheDir, "context-code-map.md")
@@ -44,8 +53,10 @@ func main() {
 	st := store.NewJSONStore(jsonPath, jsonlPath)
 
 	switch os.Args[1] {
+	case "init":
+		runInit(repoRoot)
 	case "build":
-		runBuild(repoRoot, st)
+		runBuild(repoRoot, st, cfg)
 	case "render":
 		runRender(st, mdPath)
 	case "select":
@@ -61,11 +72,38 @@ func main() {
 	}
 }
 
-func runBuild(repoRoot string, st store.Store) {
+func runInit(repoRoot string) {
+	opts := initcmd.Options{RepoRoot: repoRoot}
+
+	// Parse flags: --provider, --model
+	args := os.Args[2:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--provider":
+			if i+1 < len(args) {
+				opts.Provider = args[i+1]
+				i++
+			}
+		case "--model":
+			if i+1 < len(args) {
+				opts.Model = args[i+1]
+				i++
+			}
+		}
+	}
+
+	res, err := initcmd.Run(opts)
+	if err != nil {
+		fatal("init: %v", err)
+	}
+	initcmd.Print(res, os.Stdout)
+}
+
+func runBuild(repoRoot string, st store.Store, cfg *config.Config) {
 	reg := parse.NewRegistry()
 	reg.Register(&golang.Parser{})
 
-	summarizer := &llm.MockSummarizer{}
+	summarizer := newSummarizer(cfg)
 
 	res, err := build.Run(repoRoot, st, reg, summarizer)
 	if err != nil {
@@ -184,14 +222,30 @@ func runDoctor(repoRoot string, st store.Store) {
 	doctor.Print(r, os.Stdout)
 }
 
+// newSummarizer returns a Summarizer based on the project config.
+// Currently only "mock" is implemented; other providers return mock
+// with a warning.
+func newSummarizer(cfg *config.Config) llm.Summarizer {
+	switch cfg.LLM.Provider {
+	case "mock", "":
+		return &llm.MockSummarizer{}
+	default:
+		fmt.Fprintf(os.Stderr, "codemap: LLM provider %q not yet implemented, using mock\n", cfg.LLM.Provider)
+		return &llm.MockSummarizer{}
+	}
+}
+
 func printUsage() {
 	fmt.Println(`codemap - incremental repo intelligence and context-selection tool
 
 Usage:
-  codemap build              Scan repo and build/update the code map cache
-  codemap render             Render the code map as markdown
-  codemap select --task PATH Select relevant files for a coding task
-  codemap doctor             Report cache health and diagnostics`)
+  codemap init                         Initialize codemap in a project
+  codemap init --provider anthropic    Initialize with LLM provider
+  codemap init --model <model-id>      Initialize with specific model
+  codemap build                        Scan repo and build/update the code map cache
+  codemap render                       Render the code map as markdown
+  codemap select --task PATH           Select relevant files for a coding task
+  codemap doctor                       Report cache health and diagnostics`)
 }
 
 // findRepoRoot walks up from the current directory to find the repo root

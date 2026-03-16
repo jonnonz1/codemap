@@ -21,6 +21,12 @@ go build ./cmd/codemap
 ## Quick Start
 
 ```bash
+# Initialize codemap in your project
+codemap init
+
+# Or initialize with a specific LLM provider
+codemap init --provider anthropic --model claude-haiku-4-5-20251001
+
 # Index your repository
 codemap build
 
@@ -35,6 +41,48 @@ codemap doctor
 ```
 
 ## Commands
+
+### `codemap init`
+
+Initializes codemap in the current project. Creates:
+
+- **`.codemap.yaml`** — project config (LLM provider, model, API key env var, cache dir)
+- **`CLAUDE.md`** — adds a codemap section with usage instructions for Claude Code
+- **`tasks/example.md`** — example task file showing the frontmatter format
+- **`.gitignore`** — appends `.claude/cache/` if not already present
+
+```bash
+# Basic init (uses mock summarizer)
+codemap init
+
+# Init with Anthropic Claude
+codemap init --provider anthropic --model claude-haiku-4-5-20251001
+
+# Init with OpenAI
+codemap init --provider openai --model gpt-4o-mini
+
+# Init with Google
+codemap init --provider google --model gemini-2.0-flash
+```
+
+Running `init` is idempotent — it skips files that already exist and won't overwrite your config or CLAUDE.md.
+
+The generated `.codemap.yaml` looks like:
+
+```yaml
+llm:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    api_key_env: ANTHROPIC_API_KEY
+cache_dir: .claude/cache
+scan: {}
+```
+
+Set your API key via the environment variable named in `api_key_env`:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
 
 ### `codemap build`
 
