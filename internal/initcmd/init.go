@@ -364,20 +364,10 @@ codemap context 2>/dev/null
 
 	changed := false
 
-	// Add MCP server if not present.
-	mcpServers, _ := settings["mcpServers"].(map[string]any)
-	if mcpServers == nil {
-		mcpServers = make(map[string]any)
-	}
-	if _, exists := mcpServers["codemap"]; !exists {
-		// Use absolute path so Claude Code can find the binary.
-		cmdPath := findCodemapBinary()
-		mcpServers["codemap"] = map[string]any{
-			"command": cmdPath,
-			"args":    []string{"mcp"},
-		}
-		settings["mcpServers"] = mcpServers
-		changed = true
+	// Register MCP server via claude CLI (more reliable than editing settings.json).
+	if err := registerMCPServer(r); err != nil {
+		// Non-fatal — user can run `claude mcp add codemap -- codemap mcp` manually.
+		r.Skipped = append(r.Skipped, fmt.Sprintf("MCP server (%v)", err))
 	}
 
 	// Add SessionStart hook if not present.
@@ -415,6 +405,31 @@ codemap context 2>/dev/null
 	}
 	r.Updated = append(r.Updated, ".claude/settings.json")
 
+	return nil
+}
+
+func registerMCPServer(r *Result) error {
+	// Check if claude CLI is available.
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		return fmt.Errorf("claude CLI not found")
+	}
+
+	// Check if already registered.
+	check := exec.Command(claudePath, "mcp", "list")
+	output, _ := check.Output()
+	if strings.Contains(string(output), "codemap") {
+		r.Skipped = append(r.Skipped, "MCP server (already registered)")
+		return nil
+	}
+
+	// Register via claude mcp add.
+	cmd := exec.Command(claudePath, "mcp", "add", "codemap", "--", "codemap", "mcp")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("claude mcp add: %w", err)
+	}
+
+	r.Created = append(r.Created, "MCP server (codemap)")
 	return nil
 }
 
