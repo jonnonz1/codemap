@@ -341,20 +341,34 @@ func runDoctor(repoRoot string, st store.Store) {
 
 // newSummarizer returns a Summarizer based on the project config.
 func newSummarizer(cfg *config.Config) llm.Summarizer {
-	switch cfg.LLM.Provider {
-	case "anthropic":
-		key := cfg.LLM.ResolveAPIKey()
-		if key == "" {
-			fmt.Fprintf(os.Stderr, "codemap: no API key found (set api_key in .codemap.yaml or %s env var)\n", cfg.LLM.APIKeyEnv)
-			fmt.Fprintf(os.Stderr, "codemap: falling back to mock summarizer\n")
-			return &llm.MockSummarizer{}
-		}
-		fmt.Fprintf(os.Stderr, "codemap: using Anthropic summarizer (model: %s)\n", cfg.LLM.Model)
-		return llm.NewAnthropicSummarizer(key, cfg.LLM.Model)
-	case "mock", "":
+	provider := cfg.LLM.Provider
+	if provider == "" || provider == "mock" {
 		return &llm.MockSummarizer{}
+	}
+
+	key := cfg.LLM.ResolveAPIKey()
+	if key == "" {
+		envHint := cfg.LLM.APIKeyEnv
+		if envHint == "" {
+			envHint = "the appropriate env var"
+		}
+		fmt.Fprintf(os.Stderr, "codemap: no API key found (set api_key in .codemap.yaml or %s)\n", envHint)
+		fmt.Fprintf(os.Stderr, "codemap: falling back to mock summarizer\n")
+		return &llm.MockSummarizer{}
+	}
+
+	switch provider {
+	case "anthropic":
+		fmt.Fprintf(os.Stderr, "codemap: using Anthropic (model: %s)\n", cfg.LLM.Model)
+		return llm.NewAnthropicSummarizer(key, cfg.LLM.Model)
+	case "openai":
+		fmt.Fprintf(os.Stderr, "codemap: using OpenAI (model: %s)\n", cfg.LLM.Model)
+		return llm.NewOpenAISummarizer(key, cfg.LLM.Model)
+	case "google":
+		fmt.Fprintf(os.Stderr, "codemap: using Google Gemini (model: %s)\n", cfg.LLM.Model)
+		return llm.NewGoogleSummarizer(key, cfg.LLM.Model)
 	default:
-		fmt.Fprintf(os.Stderr, "codemap: LLM provider %q not supported, using mock\n", cfg.LLM.Provider)
+		fmt.Fprintf(os.Stderr, "codemap: unknown provider %q, using mock\n", provider)
 		return &llm.MockSummarizer{}
 	}
 }
