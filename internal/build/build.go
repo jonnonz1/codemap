@@ -50,7 +50,7 @@ type Options struct {
 
 // DefaultOptions returns sensible defaults.
 func DefaultOptions() Options {
-	return Options{Workers: 10, RateLimit: 50}
+	return Options{Workers: 32, RateLimit: 50}
 }
 
 // Run performs an incremental code map build rooted at repoRoot.

@@ -12,12 +12,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/jonnonz1/codemap/internal/autoctx"
 	"github.com/jonnonz1/codemap/internal/build"
 	"github.com/jonnonz1/codemap/internal/config"
 	"github.com/jonnonz1/codemap/internal/context"
@@ -27,7 +29,6 @@ import (
 	"github.com/jonnonz1/codemap/internal/llm"
 	"github.com/jonnonz1/codemap/internal/parse"
 	"github.com/jonnonz1/codemap/internal/render"
-	"github.com/jonnonz1/codemap/internal/selectpkg"
 	"github.com/jonnonz1/codemap/internal/stats"
 	"github.com/jonnonz1/codemap/internal/store"
 	"github.com/jonnonz1/codemap/internal/taskfile"
@@ -65,7 +66,7 @@ func main() {
 	case "render":
 		runRender(st, mdPath)
 	case "select":
-		runSelect(st, cacheDir)
+		runSelect(st, cfg, cacheDir, repoRoot)
 	case "context":
 		runContext(st)
 	case "statistics", "stats":
@@ -216,7 +217,7 @@ func runRender(st store.Store, mdPath string) {
 	fmt.Printf("  output:  %s\n", mdPath)
 }
 
-func runSelect(st store.Store, cacheDir string) {
+func runSelect(st store.Store, cfg *config.Config, cacheDir, repoRoot string) {
 	taskPath := ""
 	args := os.Args[2:]
 	for i := 0; i < len(args); i++ {
@@ -242,7 +243,20 @@ func runSelect(st store.Store, cacheDir string) {
 		fatal("no entries in cache — run 'codemap build' first")
 	}
 
-	candidates := selectpkg.Select(cm, tf)
+	caller := newCaller(cfg)
+
+	fmt.Fprintf(os.Stderr, "  selecting files from %d candidates...\n", len(cm.Entries))
+
+	result, err := autoctx.SelectWithDedicatedCall(cm, tf, caller, autoctx.Options{
+		RepoRoot: repoRoot,
+		CacheDir: cacheDir,
+		MaxFiles: tf.MaxFiles,
+	})
+	if err != nil {
+		fatal("auto-context: %v", err)
+	}
+
+	allFiles := append(result.ContextFiles, result.KnowledgeFiles...)
 
 	// Write selected-files.txt
 	filesPath := filepath.Join(cacheDir, "selected-files.txt")
@@ -250,28 +264,39 @@ func runSelect(st store.Store, cacheDir string) {
 		fatal("creating cache dir: %v", err)
 	}
 
-	var selectedFiles []string
-	for _, c := range candidates {
-		selectedFiles = append(selectedFiles, c.Entry.Path)
+	var selectedPaths []string
+	for _, f := range allFiles {
+		selectedPaths = append(selectedPaths, f.Path)
 	}
-	if err := os.WriteFile(filesPath, []byte(strings.Join(selectedFiles, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filesPath, []byte(strings.Join(selectedPaths, "\n")+"\n"), 0o644); err != nil {
 		fatal("writing selected files: %v", err)
 	}
 
-	// Write selected-context.md
+	// Write selected-context.md with FULL SOURCE.
 	contextPath := filepath.Join(cacheDir, "selected-context.md")
-	selectedMap := &selectpkg.SelectedCodeMap{
-		Task:       tf,
-		Candidates: candidates,
-	}
 	cf, err := os.Create(contextPath)
 	if err != nil {
 		fatal("creating context file: %v", err)
 	}
 	defer cf.Close()
 
-	if err := selectpkg.RenderContext(selectedMap, cf); err != nil {
-		fatal("rendering context: %v", err)
+	fmt.Fprintln(cf, "# Task Context")
+	fmt.Fprintln(cf)
+	fmt.Fprintln(cf, "## Task")
+	fmt.Fprintln(cf)
+	fmt.Fprintln(cf, tf.Body)
+	fmt.Fprintln(cf)
+
+	if len(result.KnowledgeFiles) > 0 {
+		fmt.Fprintf(cf, "## Knowledge Files (%d)\n\n", len(result.KnowledgeFiles))
+		for _, f := range result.KnowledgeFiles {
+			writeFileBlock(cf, f)
+		}
+	}
+
+	fmt.Fprintf(cf, "## Context Files (%d)\n\n", len(result.ContextFiles))
+	for _, f := range result.ContextFiles {
+		writeFileBlock(cf, f)
 	}
 
 	// Log select event for statistics.
@@ -280,16 +305,63 @@ func runSelect(st store.Store, cacheDir string) {
 		Timestamp:     time.Now(),
 		TaskFile:      taskPath,
 		TaskBody:      tf.Body,
-		SelectedFiles: selectedFiles,
-		SelectedCount: len(selectedFiles),
+		SelectedFiles: selectedPaths,
+		SelectedCount: len(selectedPaths),
 		TotalIndexed:  len(cm.Entries),
 	})
 
-	fmt.Printf("codemap select complete\n")
-	fmt.Printf("  task:     %s\n", taskPath)
-	fmt.Printf("  selected: %d files\n", len(candidates))
-	fmt.Printf("  files:    %s\n", filesPath)
-	fmt.Printf("  context:  %s\n", contextPath)
+	fromCache := ""
+	if result.FromCache {
+		fromCache = " (cached)"
+	}
+	fmt.Printf("codemap select complete%s\n", fromCache)
+	fmt.Printf("  task:      %s\n", taskPath)
+	fmt.Printf("  context:   %d files\n", len(result.ContextFiles))
+	fmt.Printf("  knowledge: %d files\n", len(result.KnowledgeFiles))
+	fmt.Printf("  files:     %s\n", filesPath)
+	fmt.Printf("  context:   %s\n", contextPath)
+}
+
+func writeFileBlock(w io.Writer, f autoctx.SelectedFile) {
+	ext := filepath.Ext(f.Path)
+	lang := ""
+	switch ext {
+	case ".go":
+		lang = "go"
+	case ".ts", ".tsx":
+		lang = "typescript"
+	case ".js", ".jsx":
+		lang = "javascript"
+	case ".py":
+		lang = "python"
+	case ".rs":
+		lang = "rust"
+	default:
+		lang = strings.TrimPrefix(ext, ".")
+	}
+	fmt.Fprintf(w, "### %s\n\n", f.Path)
+	fmt.Fprintf(w, "```%s\n%s\n```\n\n", lang, f.Source)
+}
+
+// newCaller creates an LLM caller for auto-context selection.
+func newCaller(cfg *config.Config) autoctx.LLMCaller {
+	provider := cfg.LLM.Provider
+	key := cfg.LLM.ResolveAPIKey()
+
+	if key == "" || provider == "" || provider == "mock" {
+		return &llm.MockCaller{}
+	}
+
+	switch provider {
+	case "anthropic":
+		return llm.NewAnthropicCaller(key, cfg.LLM.Model)
+	case "openai":
+		return llm.NewOpenAICaller(key, cfg.LLM.Model)
+	case "google":
+		return llm.NewGoogleCaller(key, cfg.LLM.Model)
+	default:
+		return &llm.MockCaller{}
+	}
 }
 
 func runStatistics(repoRoot string, cacheDir string) {
