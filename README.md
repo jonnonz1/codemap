@@ -121,6 +121,93 @@ Languages:
   markdown        3 files
 ```
 
+## Using with Claude Code
+
+Codemap is designed to feed pre-indexed repo context into Claude Code (or any coding agent). Here's the typical workflow:
+
+### 1. Build the index
+
+Run this whenever your codebase changes (or add it to a git hook):
+
+```bash
+codemap build
+```
+
+### 2. Add the code map to your CLAUDE.md
+
+Reference the rendered code map in your project's `CLAUDE.md` so Claude always has repo context:
+
+```markdown
+# Project Context
+
+See .claude/cache/context-code-map.md for a full map of this codebase.
+```
+
+Then render it:
+
+```bash
+codemap render
+```
+
+### 3. Use task-scoped context for focused work
+
+Create a task file describing what you want to do:
+
+```bash
+cat > task.md << 'EOF'
+---
+context_globs:
+  - internal/auth/**
+  - internal/middleware/**
+knowledge_globs:
+  - internal/model/**
+max_files: 10
+---
+
+Add JWT token refresh support to the auth middleware.
+EOF
+```
+
+Run selection:
+
+```bash
+codemap select --task task.md
+```
+
+Then paste or reference the output in your Claude Code session:
+
+```
+@.claude/cache/selected-context.md
+```
+
+### 4. CLAUDE.md integration example
+
+A full `CLAUDE.md` might look like:
+
+```markdown
+# My Project
+
+## Code Map
+
+Run `codemap build && codemap render` to regenerate.
+
+The full code map is at .claude/cache/context-code-map.md
+
+## Working on a task
+
+1. Write a task file (see examples/ directory)
+2. Run `codemap select --task <file>`
+3. Selected context is at .claude/cache/selected-context.md
+```
+
+### Tips
+
+- Run `codemap build` after pulling or switching branches
+- Run `codemap doctor` to check if your cache is stale
+- The code map uses mock summaries by default — real LLM summarization is pluggable but not yet wired up
+- All cache artifacts live in `.claude/cache/` and are gitignored
+- Task files are lightweight — create one per feature or bug you're working on
+
 ## Architecture
 
 ```
