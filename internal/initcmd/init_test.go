@@ -32,8 +32,8 @@ func TestRunCreatesAll(t *testing.T) {
 	if !strings.Contains(string(claudeContent), "codemap:begin") {
 		t.Error("CLAUDE.md should contain codemap section marker")
 	}
-	if !strings.Contains(string(claudeContent), "codemap build") {
-		t.Error("CLAUDE.md should contain codemap instructions")
+	if !strings.Contains(string(claudeContent), "codemap_select") {
+		t.Error("CLAUDE.md should contain codemap MCP tool instructions")
 	}
 
 	// .gitignore should be updated.

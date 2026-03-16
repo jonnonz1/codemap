@@ -109,6 +109,11 @@ type Report struct {
 	AvgRecall      float64 // of changed files, how many were selected
 	AvgF1          float64
 	EvalDetails    []EvalDetail
+
+	// Exploration stats (from tool usage tracking).
+	TotalReads     int // total Read calls observed
+	ExtraReads     int // Read calls for files NOT in codemap selection
+	OverheadRatio  float64 // extra / total
 }
 
 // EvalDetail holds one selection-vs-git-diff comparison.
@@ -122,8 +127,13 @@ type EvalDetail struct {
 	F1            float64
 }
 
-// Compute builds a Report from logged events and git change data.
+// Compute builds a Report from logged events, git changes, and tool usage data.
 func Compute(events []Event, gitChanges map[string][]string) *Report {
+	return ComputeFull(events, gitChanges, nil)
+}
+
+// ComputeFull builds a Report with exploration tracking data.
+func ComputeFull(events []Event, gitChanges map[string][]string, toolUses []ToolUseEvent) *Report {
 	r := &Report{}
 
 	var cacheHitSum float64
@@ -183,6 +193,20 @@ func Compute(events []Event, gitChanges map[string][]string) *Report {
 		r.AvgPrecision = pSum / float64(r.Evaluations)
 		r.AvgRecall = rSum / float64(r.Evaluations)
 		r.AvgF1 = fSum / float64(r.Evaluations)
+	}
+
+	// Exploration metrics from tool usage tracking.
+	if len(toolUses) > 0 {
+		selectEvents := make([]Event, 0)
+		for _, e := range events {
+			if e.Type == EventSelect {
+				selectEvents = append(selectEvents, e)
+			}
+		}
+		r.TotalReads, r.ExtraReads = ExplorationMetrics(selectEvents, toolUses)
+		if r.TotalReads > 0 {
+			r.OverheadRatio = float64(r.ExtraReads) / float64(r.TotalReads)
+		}
 	}
 
 	return r
@@ -285,7 +309,23 @@ func Print(r *Report, w io.Writer) {
 		fmt.Fprintln(w, "    codemap statistics --eval --task <task-file>")
 		fmt.Fprintln(w, "  This compares selected files against recent git changes.")
 	} else {
-		fmt.Fprintln(w, "No selections recorded yet. Run:")
-		fmt.Fprintln(w, "  codemap select --task <task-file>")
+		fmt.Fprintln(w, "No selections recorded yet.")
+		fmt.Fprintln(w, "  Claude will call codemap_select automatically via MCP.")
+	}
+
+	// Exploration overhead.
+	if r.TotalReads > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Exploration Overhead")
+		fmt.Fprintf(w, "  Total Read calls:    %d\n", r.TotalReads)
+		fmt.Fprintf(w, "  Extra reads:         %d (files NOT in codemap selection)\n", r.ExtraReads)
+		fmt.Fprintf(w, "  Overhead:            %.0f%%\n", r.OverheadRatio*100)
+		if r.OverheadRatio < 0.2 {
+			fmt.Fprintln(w, "  Verdict:             codemap is providing good coverage")
+		} else if r.OverheadRatio < 0.5 {
+			fmt.Fprintln(w, "  Verdict:             moderate — Claude needs some extra exploration")
+		} else {
+			fmt.Fprintln(w, "  Verdict:             high — codemap selection may need improvement")
+		}
 	}
 }

@@ -265,30 +265,19 @@ func updateClaudeMD(root string, r *Result) error {
 
 func codemapClaudeSection() string {
 	return `<!-- codemap:begin -->
-## Code Map
+## Code Map (codemap)
 
-**IMPORTANT: Before making any code changes, read ` + "`.claude/cache/context-code-map.md`" + ` to understand
-the structure and purpose of files in this codebase.** This file contains a pre-indexed map of every
-source file with summaries, exported types, functions, and imports.
+This project has a pre-indexed code map with summaries of every source file.
 
-If the code map file is missing or stale, regenerate it:
+**When starting any task, call the codemap_select tool with your task description.**
+It returns the full source code of the most relevant files, pre-selected by an AI model.
+This is faster and more precise than manual Glob/Grep exploration.
 
-` + "```bash" + `
-codemap build && codemap render
-` + "```" + `
+Example: ` + "`codemap_select({task: \"add pagination to invoices\"})`" + `
 
-### Task-scoped context
+If codemap_status shows stale data, call codemap_build first.
 
-For focused work, check if ` + "`.claude/cache/selected-context.md`" + ` exists — it contains
-pre-selected files relevant to the current task. To generate it:
-
-1. Create a task file in ` + "`tasks/`" + ` (see ` + "`tasks/example.md`" + ` for the format)
-2. Run ` + "`codemap select --task <file>`" + `
-3. Read ` + "`.claude/cache/selected-context.md`" + ` for the relevant files and summaries
-
-### Checking freshness
-
-Run ` + "`codemap doctor`" + ` to check if the code map needs rebuilding.
+Only use Glob/Grep/Read for files NOT covered by the codemap selection.
 <!-- codemap:end -->
 `
 }
@@ -364,7 +353,7 @@ codemap context 2>/dev/null
 		r.Skipped = append(r.Skipped, ".claude/hooks/codemap-context.sh")
 	}
 
-	// 2. Add SessionStart hook to .claude/settings.json.
+	// 2. Add MCP server + hooks to .claude/settings.json (additive, not destructive).
 	settingsPath := filepath.Join(root, ".claude", "settings.json")
 	settings := make(map[string]any)
 
@@ -372,14 +361,29 @@ codemap context 2>/dev/null
 		json.Unmarshal(data, &settings)
 	}
 
-	// Check if hooks already configured.
-	if _, exists := settings["hooks"]; exists {
-		r.Skipped = append(r.Skipped, ".claude/settings.json (hooks already configured)")
-		return nil
+	changed := false
+
+	// Add MCP server if not present.
+	mcpServers, _ := settings["mcpServers"].(map[string]any)
+	if mcpServers == nil {
+		mcpServers = make(map[string]any)
+	}
+	if _, exists := mcpServers["codemap"]; !exists {
+		mcpServers["codemap"] = map[string]any{
+			"command": "codemap",
+			"args":    []string{"mcp"},
+		}
+		settings["mcpServers"] = mcpServers
+		changed = true
 	}
 
-	settings["hooks"] = map[string]any{
-		"SessionStart": []map[string]any{
+	// Add SessionStart hook if not present.
+	hooks, _ := settings["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = make(map[string]any)
+	}
+	if _, exists := hooks["SessionStart"]; !exists {
+		hooks["SessionStart"] = []map[string]any{
 			{
 				"matcher": "",
 				"hooks": []map[string]string{
@@ -389,7 +393,14 @@ codemap context 2>/dev/null
 					},
 				},
 			},
-		},
+		}
+		settings["hooks"] = hooks
+		changed = true
+	}
+
+	if !changed {
+		r.Skipped = append(r.Skipped, ".claude/settings.json (already configured)")
+		return nil
 	}
 
 	data, err := json.MarshalIndent(settings, "", "  ")
@@ -399,12 +410,7 @@ codemap context 2>/dev/null
 	if err := os.WriteFile(settingsPath, append(data, '\n'), 0o644); err != nil {
 		return err
 	}
-
-	if fileExists(settingsPath) {
-		r.Updated = append(r.Updated, ".claude/settings.json")
-	} else {
-		r.Created = append(r.Created, ".claude/settings.json")
-	}
+	r.Updated = append(r.Updated, ".claude/settings.json")
 
 	return nil
 }

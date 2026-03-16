@@ -27,6 +27,7 @@ import (
 	"github.com/jonnonz1/codemap/internal/initcmd"
 	"github.com/jonnonz1/codemap/internal/langs/golang"
 	"github.com/jonnonz1/codemap/internal/llm"
+	"github.com/jonnonz1/codemap/internal/mcp"
 	"github.com/jonnonz1/codemap/internal/parse"
 	"github.com/jonnonz1/codemap/internal/render"
 	"github.com/jonnonz1/codemap/internal/stats"
@@ -69,6 +70,10 @@ func main() {
 		runSelect(st, cfg, cacheDir, repoRoot)
 	case "context":
 		runContext(st)
+	case "mcp":
+		runMCP(repoRoot, cfg)
+	case "track-tool":
+		runTrackTool(cacheDir)
 	case "statistics", "stats":
 		runStatistics(repoRoot, cacheDir)
 	case "doctor":
@@ -398,7 +403,8 @@ func runStatistics(repoRoot string, cacheDir string) {
 		gitChanges = getGitChanges(repoRoot, evalTask, evalCommits)
 	}
 
-	r := stats.Compute(events, gitChanges)
+	toolUses, _ := stats.LoadToolUses(cacheDir)
+	r := stats.ComputeFull(events, gitChanges, toolUses)
 	stats.Print(r, os.Stdout)
 }
 
@@ -440,6 +446,35 @@ func parseGitOutput(output string) []string {
 		}
 	}
 	return files
+}
+
+func runTrackTool(cacheDir string) {
+	// Called by PostToolUse hook: codemap track-tool <tool> <path>
+	args := os.Args[2:]
+	toolName := ""
+	toolPath := ""
+	if len(args) >= 1 {
+		toolName = args[0]
+	}
+	if len(args) >= 2 {
+		toolPath = args[1]
+	}
+	if toolName == "" {
+		return
+	}
+	_ = stats.LogToolUse(cacheDir, &stats.ToolUseEvent{
+		Timestamp: time.Now(),
+		Tool:      toolName,
+		Path:      toolPath,
+	})
+}
+
+func runMCP(repoRoot string, cfg *config.Config) {
+	s := mcp.NewServer()
+	mcp.RegisterTools(s, repoRoot, cfg)
+	if err := s.Run(); err != nil {
+		fatal("mcp server: %v", err)
+	}
 }
 
 func runContext(st store.Store) {
