@@ -20,6 +20,7 @@ import (
 
 	"github.com/jonnonz1/codemap/internal/build"
 	"github.com/jonnonz1/codemap/internal/config"
+	"github.com/jonnonz1/codemap/internal/context"
 	"github.com/jonnonz1/codemap/internal/doctor"
 	"github.com/jonnonz1/codemap/internal/initcmd"
 	"github.com/jonnonz1/codemap/internal/langs/golang"
@@ -65,6 +66,8 @@ func main() {
 		runRender(st, mdPath)
 	case "select":
 		runSelect(st, cacheDir)
+	case "context":
+		runContext(st)
 	case "statistics", "stats":
 		runStatistics(repoRoot, cacheDir)
 	case "doctor":
@@ -367,6 +370,12 @@ func parseGitOutput(output string) []string {
 	return files
 }
 
+func runContext(st store.Store) {
+	if err := context.Inject(st, os.Stdout); err != nil {
+		fatal("context: %v", err)
+	}
+}
+
 func runDoctor(repoRoot string, st store.Store) {
 	r, err := doctor.Run(repoRoot, st)
 	if err != nil {
@@ -418,6 +427,7 @@ Usage:
   codemap build                        Scan repo and build/update the code map cache
   codemap render                       Render the code map as markdown
   codemap select --task PATH           Select relevant files for a coding task
+  codemap context                      Print context injected into Claude sessions
   codemap statistics                   Show usage stats and selection accuracy
   codemap statistics --eval            Evaluate selection accuracy against git changes
   codemap statistics --eval --task X   Evaluate a specific task file

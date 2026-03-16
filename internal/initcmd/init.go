@@ -348,31 +348,13 @@ func setupClaudeHooks(root string, r *Result) error {
 	if !fileExists(scriptPath) {
 		script := `#!/bin/bash
 # Auto-injected by codemap init — runs at Claude Code session start.
-# Gives Claude awareness of the code map and its freshness.
+# Outputs the full code map context so Claude has codebase awareness.
 
 if ! command -v codemap &> /dev/null; then
   exit 0
 fi
 
-echo "=== Code Map Status ==="
-codemap doctor 2>/dev/null
-
-CACHE=".claude/cache/context-code-map.md"
-if [ -f "$CACHE" ]; then
-  LINES=$(wc -l < "$CACHE" | tr -d ' ')
-  echo ""
-  echo "Code map available at $CACHE ($LINES lines)."
-  echo "Read it to understand the codebase before making changes."
-else
-  echo ""
-  echo "No code map found. Run: codemap build && codemap render"
-fi
-
-SELECTED=".claude/cache/selected-context.md"
-if [ -f "$SELECTED" ]; then
-  echo ""
-  echo "Task context available at $SELECTED — read it for the current task."
-fi
+codemap context 2>/dev/null
 `
 		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 			return err
