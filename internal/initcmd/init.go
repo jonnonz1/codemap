@@ -4,6 +4,7 @@ package initcmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -59,7 +60,12 @@ func Run(opts Options) (*Result, error) {
 		return r, fmt.Errorf("updating CLAUDE.md: %w", err)
 	}
 
-	// 5. Create example task file.
+	// 5. Set up Claude Code hooks for auto-context injection.
+	if err := setupClaudeHooks(opts.RepoRoot, r); err != nil {
+		return r, fmt.Errorf("setting up hooks: %w", err)
+	}
+
+	// 6. Create example task file.
 	if err := writeExampleTask(opts.RepoRoot, r); err != nil {
 		return r, fmt.Errorf("writing example task: %w", err)
 	}
@@ -328,6 +334,96 @@ The more specific you are, the better codemap can select relevant files.
 		return err
 	}
 	r.Created = append(r.Created, "tasks/example.md")
+	return nil
+}
+
+func setupClaudeHooks(root string, r *Result) error {
+	// 1. Create the hook script.
+	hooksDir := filepath.Join(root, ".claude", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return err
+	}
+
+	scriptPath := filepath.Join(hooksDir, "codemap-context.sh")
+	if !fileExists(scriptPath) {
+		script := `#!/bin/bash
+# Auto-injected by codemap init — runs at Claude Code session start.
+# Gives Claude awareness of the code map and its freshness.
+
+if ! command -v codemap &> /dev/null; then
+  exit 0
+fi
+
+echo "=== Code Map Status ==="
+codemap doctor 2>/dev/null
+
+CACHE=".claude/cache/context-code-map.md"
+if [ -f "$CACHE" ]; then
+  LINES=$(wc -l < "$CACHE" | tr -d ' ')
+  echo ""
+  echo "Code map available at $CACHE ($LINES lines)."
+  echo "Read it to understand the codebase before making changes."
+else
+  echo ""
+  echo "No code map found. Run: codemap build && codemap render"
+fi
+
+SELECTED=".claude/cache/selected-context.md"
+if [ -f "$SELECTED" ]; then
+  echo ""
+  echo "Task context available at $SELECTED — read it for the current task."
+fi
+`
+		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+			return err
+		}
+		r.Created = append(r.Created, ".claude/hooks/codemap-context.sh")
+	} else {
+		r.Skipped = append(r.Skipped, ".claude/hooks/codemap-context.sh")
+	}
+
+	// 2. Add SessionStart hook to .claude/settings.json.
+	settingsPath := filepath.Join(root, ".claude", "settings.json")
+	settings := make(map[string]any)
+
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		json.Unmarshal(data, &settings)
+	}
+
+	// Check if hooks already configured.
+	if _, exists := settings["hooks"]; exists {
+		r.Skipped = append(r.Skipped, ".claude/settings.json (hooks already configured)")
+		return nil
+	}
+
+	settings["hooks"] = map[string]any{
+		"SessionStart": []map[string]any{
+			{
+				"matcher": "",
+				"hooks": []map[string]string{
+					{
+						"type":    "command",
+						"command": ".claude/hooks/codemap-context.sh",
+					},
+				},
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(settingsPath, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+
+	if fileExists(settingsPath) {
+		r.Updated = append(r.Updated, ".claude/settings.json")
+	} else {
+		r.Created = append(r.Created, ".claude/settings.json")
+	}
+
 	return nil
 }
 
