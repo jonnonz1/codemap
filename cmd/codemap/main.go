@@ -330,14 +330,20 @@ func runDoctor(repoRoot string, st store.Store) {
 }
 
 // newSummarizer returns a Summarizer based on the project config.
-// Currently only "mock" is implemented; other providers return mock
-// with a warning.
 func newSummarizer(cfg *config.Config) llm.Summarizer {
 	switch cfg.LLM.Provider {
+	case "anthropic":
+		key := os.Getenv(cfg.LLM.APIKeyEnv)
+		if key == "" {
+			fmt.Fprintf(os.Stderr, "codemap: %s not set, using mock summarizer\n", cfg.LLM.APIKeyEnv)
+			return &llm.MockSummarizer{}
+		}
+		fmt.Fprintf(os.Stderr, "codemap: using Anthropic summarizer (model: %s)\n", cfg.LLM.Model)
+		return llm.NewAnthropicSummarizer(key, cfg.LLM.Model)
 	case "mock", "":
 		return &llm.MockSummarizer{}
 	default:
-		fmt.Fprintf(os.Stderr, "codemap: LLM provider %q not yet implemented, using mock\n", cfg.LLM.Provider)
+		fmt.Fprintf(os.Stderr, "codemap: LLM provider %q not supported, using mock\n", cfg.LLM.Provider)
 		return &llm.MockSummarizer{}
 	}
 }
