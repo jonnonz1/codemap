@@ -19,17 +19,10 @@ vendor/
 .claude/cache/
 .codemap.yaml
 
-# Dolt database files (beads)
+# Beads (local issue tracking)
+.beads/
 .dolt/
 *.db
-
-# Beads runtime state
-.beads/dolt-server.lock
-.beads/dolt-server.log
-.beads/dolt-server.pid
-.beads/dolt-server.port
-.beads/dolt/
-.beads/interactions.jsonl
 
 # OS
 .DS_Store
