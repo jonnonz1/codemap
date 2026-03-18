@@ -1,45 +1,41 @@
-# MCP Tool Design for codemap
+# MCP Tool Design
 
-## The Problem
+## The problem
 
-Without codemap, Claude Code's workflow for a task like "add pagination to invoices":
+Without codemap, Claude Code's workflow for something like "add pagination to invoices" looks like this:
 
-1. Glob for `*invoice*` → 47 results
-2. Read 5 files to understand structure
-3. Grep for `fetchInvoices` → 12 results
+1. Glob for `*invoice*` — 47 results
+2. Read 5 files to understand the structure
+3. Grep for `fetchInvoices` — 12 results
 4. Read 4 more files
-5. Grep for pagination patterns → 8 results
+5. Grep for pagination patterns — 8 results
 6. Read 3 more files
 7. Finally start coding
 
-**Context consumed by exploration: ~60-100k tokens** (12+ files read, many
-partially useful). Plus the Glob/Grep results themselves. Plus wrong turns.
+That's 60-100k tokens burned on exploration alone. 12+ files read, many only partially useful. Plus the Glob/Grep results themselves. Plus wrong turns.
 
-With codemap auto-context, the flow becomes:
+With codemap auto-context:
 
 1. Claude calls `codemap_select` with "add pagination to invoices"
-2. Haiku reads the pre-indexed code map summaries, picks 5 files
+2. Haiku reads the pre-indexed summaries, picks 5 files
 3. Tool returns full source of those 5 files
 4. Claude starts coding
 
-**Context consumed: ~30-50k tokens** (5 focused files, no exploration waste).
+30-50k tokens. 5 focused files. No exploration waste.
 
-## The Impact
+## Why it matters
 
-jeremychone's numbers: 381 files (1.62 MB) → 5 files (27.90 KB). That's a
-**98% reduction** in candidate context, achieved by a cheap model reading
-summaries (not source) and making an intelligent selection.
+jeremychone's numbers: 381 files (1.62 MB) compressed to 5 files (27.90 KB). That's a 98% reduction in candidate context — a cheap model reading summaries (not source) and making an intelligent selection.
 
-The impact isn't just size — it's **precision**:
+It's not just about size though — it's precision:
 - No exploration artifacts (failed Globs, wrong files read)
 - No partial reads of files that turned out to be irrelevant
-- The cheap model (Haiku) burns its own tokens for selection, not the
-  expensive model's (Opus/Sonnet) context window
+- The cheap model (Haiku) burns its own tokens for selection, not the expensive model's context window
 - One tool call replaces 10+ Glob/Grep/Read cycles
 
-## MCP Tools
+## MCP tools
 
-### `codemap_select` (primary tool)
+### `codemap_select`
 
 The main tool. Claude calls this when it has a task and needs focused context.
 
@@ -62,7 +58,7 @@ Output:
   session_id: string     — unique ID for this selection (used by statistics)
 ```
 
-**What happens internally:**
+Internally:
 1. Check if code map exists and is reasonably fresh
 2. If stale, run incremental build (fast for small changes)
 3. Filter code map by globs
@@ -72,7 +68,7 @@ Output:
 7. Log the selection event with session_id
 8. Return to Claude
 
-### `codemap_status` (diagnostic tool)
+### `codemap_status`
 
 Quick check on code map health.
 
@@ -86,7 +82,7 @@ Output:
   has_cache: boolean
 ```
 
-### `codemap_build` (maintenance tool)
+### `codemap_build`
 
 Trigger an incremental rebuild.
 
@@ -102,114 +98,95 @@ Output:
   duration: string
 ```
 
-## Measurement — What We Can Actually Prove
+## Measurement — what we can actually prove
 
-### Principle: Only measure what's real
+### Only measure what's real
 
-No guesses about "tokens saved" or counterfactual comparisons. Only metrics
-derived from actual observed data.
+No guessing about "tokens saved" or counterfactual comparisons. Only metrics from actual observed data.
 
-### Data Collection
+### Data collection
 
-**1. Per-selection event (logged by codemap_select):**
+**Per-selection event (logged by codemap_select):**
 ```json
 {
   "session_id": "abc123",
   "timestamp": "2026-03-17T10:30:00Z",
   "task": "add pagination to invoices",
-  "candidates": 381,          // files in code map matching globs
-  "selected": 5,              // files Haiku picked
+  "candidates": 381,
+  "selected": 5,
   "selected_paths": [...],
-  "selected_bytes": 28430,    // total bytes of selected source
-  "candidate_bytes": 1620000, // total bytes if all candidates loaded
-  "selection_time_ms": 2400,  // how long Haiku took
+  "selected_bytes": 28430,
+  "candidate_bytes": 1620000,
+  "selection_time_ms": 2400,
   "from_cache": false
 }
 ```
 
-**2. Per-session exploration tracking (via PostToolUse hook):**
+**Per-session exploration tracking (via PostToolUse hook):**
 
-A PostToolUse hook logs every Read/Glob/Grep call Claude makes AFTER
-receiving codemap context. This tracks exploration BEYOND what codemap
-provided.
+A PostToolUse hook logs every Read/Glob/Grep call Claude makes after receiving codemap context. This tracks exploration beyond what codemap provided.
 
 ```json
 {
   "session_id": "abc123",
   "tool": "Read",
   "path": "src/components/InvoiceList.tsx",
-  "in_selection": true,        // was this file in codemap's selection?
+  "in_selection": true,
   "timestamp": "2026-03-17T10:31:00Z"
 }
 ```
 
-**3. Per-session outcome (via git diff at session end):**
+**Per-session outcome (via git diff at session end):**
 
-When the session ends (or user runs `codemap statistics`), compare:
-- Files codemap selected → `selected_paths`
-- Files actually modified → `git diff --name-only`
+When the session ends (or user runs `codemap statistics`), compare files codemap selected against files actually modified via `git diff --name-only`.
 
-### Metrics Computed From Real Data
+### Metrics from real data
 
-**Selection Hit Rate (most important metric):**
+**Selection hit rate:**
 ```
 hit_rate = files_modified_that_were_selected / files_modified_total
 ```
-Example: codemap selected 5 files. User modified 4 files. 3 of those 4
-were in the selection. Hit rate = 75%.
+Codemap selected 5 files. User modified 4. 3 of those 4 were in the selection. Hit rate = 75%. Ground truth.
 
-This is ground truth — no guessing.
-
-**Selection Precision:**
+**Selection precision:**
 ```
 precision = files_modified_that_were_selected / files_selected_total
 ```
-Example: selected 5, modified 3 of them. Precision = 60%.
-High precision = codemap didn't include junk files.
+Selected 5, modified 3 of them. Precision = 60%. High precision means codemap didn't include junk.
 
-**Exploration Overhead:**
+**Exploration overhead:**
 ```
 extra_reads = Read_calls_for_files_NOT_in_selection
 total_reads = all_Read_calls_in_session
 overhead = extra_reads / total_reads
 ```
-Example: Claude made 8 Read calls. 5 were for files codemap selected.
-3 were additional exploration. Overhead = 37%.
+Claude made 8 Read calls. 5 were for files codemap selected. 3 were additional exploration. Overhead = 37%. Low overhead means codemap gave Claude everything it needed.
 
-Low overhead = codemap gave Claude everything it needed.
-High overhead = Claude had to explore beyond codemap's selection.
-
-**Context Compression Ratio (real, not estimated):**
+**Context compression (real, not estimated):**
 ```
 compression = selected_bytes / candidate_bytes
 ```
-Example: 381 candidates = 1.62 MB. 5 selected = 27.9 KB.
-Compression = 98.3%.
+381 candidates = 1.62 MB. 5 selected = 27.9 KB. Compression = 98.3%. Both numbers are measured.
 
-This measures how much the code map + LLM selection compressed the
-input. It's real — both numbers are measured.
-
-**Tool Call Reduction:**
+**Tool call reduction:**
 ```
 exploration_calls = Glob + Grep + Read calls AFTER codemap_select
 ```
-Track this per session. Compare across sessions over time.
-If this trends toward 0-2, codemap is providing complete context.
-If it stays at 10+, codemap selection needs improvement.
+Track per session, compare over time. Trending toward 0-2 means codemap is providing complete context. Staying at 10+ means the selection needs work.
 
-### What `codemap statistics` Shows
+### What `codemap statistics` shows
 
 ```
 codemap statistics
 ==================
 
 Selection Accuracy (last 10 sessions)
-  Avg hit rate:          82%   (of modified files, % were pre-selected)
-  Avg precision:         65%   (of selected files, % were actually needed)
-  Avg compression:       97%   (candidate bytes → selected bytes)
+  Avg hit rate:          82%
+  Avg precision:         65%
+  Avg compression:       97%
 
 Exploration Overhead (last 10 sessions)
-  Avg extra Read calls:  1.8   (files read beyond codemap selection)
+  Avg extra Read calls:  1.8
   Avg total Read calls:  6.2
   Overhead ratio:        29%
 
@@ -227,7 +204,7 @@ Recent Sessions:
     selected 3 files, modified 2, hit rate 100%, 1 extra read
 ```
 
-### How Exploration Tracking Works
+### How exploration tracking works
 
 A PostToolUse hook in `.claude/settings.json` logs tool calls:
 
@@ -249,23 +226,17 @@ A PostToolUse hook in `.claude/settings.json` logs tool calls:
 }
 ```
 
-This is optional but enables the exploration overhead metric. Without it,
-we still have selection accuracy from git diff.
+Optional but enables the exploration overhead metric. Without it, you still get selection accuracy from git diff.
 
-### What We DON'T Claim
+### What we don't claim
 
 - We don't claim "X tokens saved" — can't know the counterfactual
 - We don't claim "X% faster" — too many variables
 - We don't compare sessions with vs without codemap — not a controlled experiment
 
-We only report:
-- How accurate was the file selection? (hit rate, precision)
-- How much did Claude explore beyond the selection? (overhead)
-- How much did the code map compress the candidate pool? (compression ratio)
+We report: how accurate was the file selection (hit rate, precision), how much did Claude explore beyond the selection (overhead), and how much did the code map compress the candidate pool (compression ratio). All from real data.
 
-These are all measured from real data, not estimated.
-
-## MCP Server Configuration
+## MCP server configuration
 
 `.claude/settings.json`:
 ```json
@@ -280,7 +251,7 @@ These are all measured from real data, not estimated.
 }
 ```
 
-## Claude Code Integration
+## Claude Code integration
 
 CLAUDE.md instructs Claude:
 
@@ -294,23 +265,20 @@ When you receive a task:
 4. If codemap_status shows stale data, call codemap_build first
 ```
 
-## Implementation Plan
+## Implementation plan
 
-1. Add `codemap mcp` command that starts a stdio JSON-RPC MCP server
+1. Add `codemap mcp` command — stdio JSON-RPC MCP server
 2. Implement codemap_select, codemap_status, codemap_build tools
 3. Add session tracking (log selections, track tool usage via hook)
 4. Update `codemap init` to register MCP server + hooks in settings.json
 5. Update `codemap statistics` to compute real metrics from session data
 6. Update CLAUDE.md template with MCP tool usage instructions
-7. Test end-to-end on real project
+7. Test end-to-end on a real project
 
-## Open Questions
+## Open questions
 
-1. **Auto-build on select?** Should codemap_select auto-rebuild if stale?
-   Leaning yes for incremental (fast), no for initial (slow).
+1. **Auto-build on select?** Should codemap_select auto-rebuild if stale? Leaning yes for incremental (fast), no for initial (slow).
 
-2. **Token budget?** Should codemap_select cap total source bytes returned?
-   If 5 files = 200KB, should it truncate? Probably yes — 80KB default cap.
+2. **Token budget?** Should codemap_select cap total source bytes returned? If 5 files = 200KB, should it truncate? Probably yes — 80KB default cap.
 
-3. **PostToolUse hook feasibility?** Need to verify that Claude Code
-   passes enough info to the hook (tool name, input path) to track reads.
+3. **PostToolUse hook feasibility?** Need to verify that Claude Code passes enough info to the hook (tool name, input path) to track reads.

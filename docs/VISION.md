@@ -2,11 +2,11 @@
 
 Based on jeremychone's proven workflow (Hacker News, March 2026).
 
-## The Approach That Works
+## The approach that works
 
-Three-phase pipeline, each phase using the right model for the job:
+Three-phase pipeline, each phase using the right model for the job.
 
-### Phase 1: Code Map (cheap model, cached, incremental)
+### Phase 1: Code map (cheap model, cached, incremental)
 
 Per file in the repo, generate and cache:
 - `summary` — one-sentence description
@@ -14,48 +14,33 @@ Per file in the repo, generate and cache:
 - `public_types` — exported type names
 - `public_functions` — exported function names
 
-**Key properties:**
-- Cached until file changes (mtime + blake3)
-- High concurrency (32 workers)
-- Uses cheapest fast model (Flash/Haiku) — ~$1-2 for 50k LOC
-- Serialized as clean structured markdown for AI consumption (not JSON)
-- One trip per file, consistent size per entry
+Cached until file changes (mtime + blake3). High concurrency (32 workers). Uses the cheapest fast model (Flash/Haiku) — roughly $1-2 for 50k LOC. Serialised as clean structured markdown for AI consumption (not JSON). One trip per file, consistent size per entry.
 
 **Status: We have this. Needs concurrency bump to 32.**
 
-### Phase 2: Auto-Context (cheap model, per-task, the magic step)
+### Phase 2: Auto-context (cheap model, per-task — the magic step)
 
-This is where the real value is. Given:
-- The full code map (summaries only, not source)
-- The developer's task description
-- Narrowing globs (knowledge_globs, context_globs)
+This is where the real value is. Given the full code map (summaries only, not source), the developer's task description, and narrowing globs (knowledge_globs, context_globs) — ask a cheap model to select the actual files needed.
 
-**Ask a cheap model to select the actual files needed.**
+This isn't keyword matching. This isn't deterministic scoring. The LLM reads all the summaries, understands the task, and returns the 5-10 files that matter.
 
-This is NOT keyword matching. This is NOT deterministic scoring. The LLM reads
-all the summaries, understands the task, and returns the 5-10 files that matter.
+jeremychone's result: 381 candidate files down to 5 context files.
 
-jeremychone's result: 381 candidate files → 5 context files.
-
-The developer provides globs in YAML frontmatter to narrow the initial pool,
-but the LLM does the actual intelligent selection.
+The developer provides globs in YAML frontmatter to narrow the initial pool, but the LLM does the actual intelligent selection.
 
 **Status: WE DON'T HAVE THIS. This is the critical missing piece.**
 
-Our current `codemap select` uses deterministic scoring (word overlap, symbol
-matching) which doesn't work well. It needs to be replaced with an LLM-based
-selection step.
+Our current `codemap select` uses deterministic scoring (word overlap, symbol matching) which doesn't work well. Needs to be replaced with an LLM-based selection step.
 
-### Phase 3: Focused Work (big model, small context)
+### Phase 3: Focused work (big model, small context)
 
-Feed the selected files (full source) + the task description to the big model.
-Context is typically 30-80k tokens. High precision input → high precision output.
+Feed the selected files (full source) + the task description to the big model. Context is typically 30-80k tokens. High precision input, high precision output.
 
 In our case, this is just Claude Code with the right files pre-loaded.
 
 **Status: This is Claude Code. We just need to feed it the right context.**
 
-## What We Need To Change
+## What needs to change
 
 ### 1. Replace deterministic select with LLM-based auto-context
 
@@ -76,15 +61,11 @@ codemap select --task task.md
 → write selected-files.txt + selected-context.md with FULL SOURCE of selected files
 ```
 
-The key insight: the cheap model is reading summaries (small) to select files,
-then we include the full source (large) of only those files. This is the
-compression step that makes it work.
+The key insight: the cheap model reads summaries (small) to select files, then we include the full source (large) of only those files. That's the compression step that makes it work.
 
 ### 2. Include full source in selected context, not just summaries
 
-Current selected-context.md has summaries of selected files. Useless — Claude
-needs the actual code. The output should be the full source of selected files,
-ready to paste into a context window.
+Current selected-context.md has summaries of selected files. Useless — Claude needs the actual code. Output should be full source of selected files, ready to paste into a context window.
 
 ### 3. Knowledge files vs context files
 
@@ -96,8 +77,7 @@ Both get included in the final context but serve different purposes.
 
 ### 4. Stop injecting the full code map into sessions
 
-2688 file summaries at session start is noise. The code map is an intermediate
-artifact for the auto-context step, not something Claude should read directly.
+2688 file summaries at session start is noise. The code map is an intermediate artifact for the auto-context step, not something Claude should read directly.
 
 The SessionStart hook should only inject:
 - Brief status (is cache fresh?)
@@ -105,8 +85,7 @@ The SessionStart hook should only inject:
 
 ### 5. Bump concurrency to 32
 
-jeremychone uses 32 concurrent workers for code mapping. Our default of 10 is
-conservative. Haiku can handle 32 easily.
+jeremychone uses 32 concurrent workers for code mapping. Our default of 10 is conservative. Haiku handles 32 easily.
 
 ### 6. One-command workflow
 
@@ -118,7 +97,7 @@ codemap select --task task.md
 # → Claude Code reads it and starts working
 ```
 
-## Architecture Changes
+## Architecture changes
 
 ```
 codemap build          — unchanged (code map generation)
@@ -134,7 +113,7 @@ codemap statistics     — add auto-context accuracy tracking
 ```
 1. Load code map from cache
 2. Filter entries by knowledge_globs + context_globs
-3. Serialize filtered entries as markdown (summaries only)
+3. Serialise filtered entries as markdown (summaries only)
 4. Build prompt: "Given this code map and this task, which files
    should be in context? Return a JSON list of file paths."
 5. Call cheap model (Haiku/Flash)
@@ -147,25 +126,20 @@ codemap statistics     — add auto-context accuracy tracking
 9. Write selected-files.txt
 ```
 
-## What NOT To Change
+## What not to change
 
 - Code map format and caching (mtime + blake3) — works well
-- Per-file LLM summarization — works well
+- Per-file LLM summarisation — works well
 - Task file format (YAML frontmatter + body) — matches jeremychone's approach
 - JSON/JSONL storage — works well
 - Go parser for deterministic facts — useful complement to LLM summaries
 - Multi-provider support (Anthropic, OpenAI, Google) — good to have
 
-## Success Criteria
+## Success criteria
 
-After the rewrite, running:
-```bash
-codemap select --task task.md
-```
-
-Should produce a selected-context.md that:
+After the rewrite, `codemap select --task task.md` should produce a selected-context.md that:
 1. Contains 3-10 files (not 20+)
-2. Includes FULL SOURCE of those files (not just summaries)
+2. Includes full source of those files (not just summaries)
 3. Is 30-80k tokens (focused, not bloated)
 4. Gets it right 90%+ of the time (the files Claude actually needs)
 5. Takes <30 seconds (one cheap model call)
