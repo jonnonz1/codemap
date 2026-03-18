@@ -1,6 +1,6 @@
 # codemap vision
 
-Based on jeremychone's proven workflow (Hacker News, March 2026).
+The proven workflow — code map, auto-context, then focused work.
 
 ## The approach that works
 
@@ -24,7 +24,7 @@ This is where the real value is. Given the full code map (summaries only, not so
 
 This isn't keyword matching. This isn't deterministic scoring. The LLM reads all the summaries, understands the task, and returns the 5-10 files that matter.
 
-jeremychone's result: 381 candidate files down to 5 context files.
+Real-world result: 381 candidate files down to 5 context files.
 
 The developer provides globs in YAML frontmatter to narrow the initial pool, but the LLM does the actual intelligent selection.
 
@@ -69,7 +69,7 @@ Current selected-context.md has summaries of selected files. Useless — Claude 
 
 ### 3. Knowledge files vs context files
 
-jeremychone distinguishes:
+The approach distinguishes:
 - **context files** — source files relevant to the task (narrowed by context_globs)
 - **knowledge files** — reference docs, best practices, style guides (narrowed by knowledge_globs)
 
@@ -85,7 +85,7 @@ The SessionStart hook should only inject:
 
 ### 5. Bump concurrency to 32
 
-jeremychone uses 32 concurrent workers for code mapping. Our default of 10 is conservative. Haiku handles 32 easily.
+32 concurrent workers is the sweet spot for code mapping. Our default of 10 is conservative. Haiku handles 32 easily.
 
 ### 6. One-command workflow
 
@@ -130,7 +130,7 @@ codemap statistics     — add auto-context accuracy tracking
 
 - Code map format and caching (mtime + blake3) — works well
 - Per-file LLM summarisation — works well
-- Task file format (YAML frontmatter + body) — matches jeremychone's approach
+- Task file format (YAML frontmatter + body) — proven pattern
 - JSON/JSONL storage — works well
 - Go parser for deterministic facts — useful complement to LLM summaries
 - Multi-provider support (Anthropic, OpenAI, Google) — good to have
@@ -146,9 +146,9 @@ After the rewrite, `codemap select --task task.md` should produce a selected-con
 
 ## Reference
 
-jeremychone's approach (Hacker News, March 2026):
-- "381 context files (1.62 MB) → 5 context files (27.90 KB)"
-- "11 knowledge files (30.16 KB) → 3 knowledge files (5.62 KB)"
+Real-world benchmarks:
+- 381 context files (1.62 MB) → 5 context files (27.90 KB)
+- 11 knowledge files (30.16 KB) → 3 knowledge files (5.62 KB)
 - Concurrency 32, Flash for code map + auto-context
-- "I have zero sed/grep in my workflow. Just this."
-- "Higher precision on the input leads to higher precision on the output."
+- Zero sed/grep needed — just this
+- Higher precision on the input leads to higher precision on the output

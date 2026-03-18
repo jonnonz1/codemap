@@ -25,7 +25,7 @@ With codemap auto-context:
 
 ## Why it matters
 
-jeremychone's numbers: 381 files (1.62 MB) compressed to 5 files (27.90 KB). That's a 98% reduction in candidate context — a cheap model reading summaries (not source) and making an intelligent selection.
+Real-world numbers: 381 files (1.62 MB) compressed to 5 files (27.90 KB). That's a 98% reduction in candidate context — a cheap model reading summaries (not source) and making an intelligent selection.
 
 It's not just about size though — it's precision:
 - No exploration artifacts (failed Globs, wrong files read)

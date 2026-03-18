@@ -4,7 +4,7 @@ Code map your repo so AI coding agents find the right files on the first try.
 
 Codemap indexes every file in your repository with a one-line summary, then uses a cheap fast model to pick only the files relevant to a task. Instead of your agent burning 10+ tool calls exploring the codebase, it gets the exact files it needs in one shot.
 
-Inspired by [jeremychone's approach](https://news.ycombinator.com/item?id=43367518) — code map with a cheap model, auto-context with a cheap model, then code with a big model. Higher precision on the input, higher precision on the output.
+The idea is simple — code map with a cheap model, auto-context with a cheap model, then code with a big model. Higher precision on the input, higher precision on the output.
 
 ## How it works
 
