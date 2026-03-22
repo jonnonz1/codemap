@@ -84,3 +84,63 @@ func (o *OpenAISummarizer) Summarize(path string, source []byte) (*SummaryResult
 
 	return parseSummaryJSON(result.Choices[0].Message.Content)
 }
+
+// SummarizeBatch summarizes multiple files in a single API call.
+func (o *OpenAISummarizer) SummarizeBatch(paths []string, sources [][]byte) ([]*SummaryResult, error) {
+	prompt := buildBatchPrompt(paths, sources)
+
+	maxTokens := 256 * len(paths)
+	if maxTokens > 4096 {
+		maxTokens = 4096
+	}
+
+	body, _ := json.Marshal(struct {
+		Model    string `json:"model"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+		MaxTokens int `json:"max_tokens"`
+	}{
+		Model: o.Model,
+		Messages: []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}{{Role: "user", Content: prompt}},
+		MaxTokens: maxTokens,
+	})
+
+	req, err := http.NewRequest("POST", openaiAPI, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+o.APIKey)
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("openai batch API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("openai API %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parsing openai batch response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return nil, fmt.Errorf("empty openai batch response")
+	}
+
+	return parseBatchSummaryJSON(result.Choices[0].Message.Content, len(paths))
+}

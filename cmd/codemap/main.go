@@ -35,6 +35,13 @@ import (
 	"github.com/jonnonz1/codemap/internal/taskfile"
 )
 
+// Set via -ldflags at build time.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -60,6 +67,11 @@ func main() {
 	st := store.NewJSONStore(jsonPath, jsonlPath)
 
 	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Printf("codemap %s\n", version)
+		fmt.Printf("  commit: %s\n", commit)
+		fmt.Printf("  built:  %s\n", date)
+		return
 	case "init":
 		runInit(repoRoot)
 	case "build":
@@ -131,6 +143,7 @@ func runBuild(repoRoot string, st store.Store, cfg *config.Config, cacheDir stri
 	summarizer := newSummarizer(cfg)
 
 	opts := build.DefaultOptions()
+	opts.Scan = &cfg.Scan
 	if cfg.LLM.Workers > 0 {
 		opts.Workers = cfg.LLM.Workers
 	}
@@ -188,6 +201,9 @@ func runBuild(repoRoot string, st store.Store, cfg *config.Config, cacheDir stri
 	fmt.Printf("  duration:      %s\n", time.Since(startTime).Round(time.Second))
 	if res.ParseErrors > 0 {
 		fmt.Printf("  parse errors:  %d\n", res.ParseErrors)
+	}
+	if res.SkippedTrivial > 0 {
+		fmt.Printf("  trivial skip:  %d\n", res.SkippedTrivial)
 	}
 	if res.SummaryErrors > 0 {
 		fmt.Printf("  LLM errors:    %d\n", res.SummaryErrors)
@@ -538,7 +554,8 @@ Usage:
   codemap statistics                   Show usage stats and selection accuracy
   codemap statistics --eval            Evaluate selection accuracy against git changes
   codemap statistics --eval --task X   Evaluate a specific task file
-  codemap doctor                       Report cache health and diagnostics`)
+  codemap doctor                       Report cache health and diagnostics
+  codemap version                      Print version information`)
 }
 
 // findRepoRoot walks up from the current directory to find the repo root

@@ -55,7 +55,7 @@ func Run(repoRoot string, st store.Store) (*Report, error) {
 	}
 
 	// Compare current files to cache for staleness.
-	files, err := scan.Dir(repoRoot)
+	files, err := scan.Dir(repoRoot, nil)
 	if err == nil {
 		currentFiles := make(map[string]int64)
 		for _, f := range files {

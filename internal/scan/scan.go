@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+
+	"github.com/jonnonz1/codemap/internal/config"
 )
 
 // ignoreDirs are directory names that are always skipped during scanning.
@@ -76,10 +78,25 @@ type FileInfo struct {
 
 // Dir walks the directory tree rooted at root and returns all indexable files.
 // Paths are returned relative to root. Symlinks are skipped to prevent
-// infinite loops and duplicate entries.
-func Dir(root string) ([]FileInfo, error) {
+// infinite loops and duplicate entries. Pass nil for cfg to use defaults.
+func Dir(root string, cfg *config.ScanConfig) ([]FileInfo, error) {
 	var files []FileInfo
 	root = filepath.Clean(root)
+
+	extraDirs := make(map[string]bool)
+	var patterns []string
+
+	if cfg != nil {
+		for _, d := range cfg.IgnoreDirs {
+			extraDirs[d] = true
+		}
+		if !cfg.NoDefaults {
+			patterns = append(patterns, config.DefaultIgnorePatterns...)
+		}
+		patterns = append(patterns, cfg.IgnorePatterns...)
+	} else {
+		patterns = append(patterns, config.DefaultIgnorePatterns...)
+	}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -94,7 +111,7 @@ func Dir(root string) ([]FileInfo, error) {
 		}
 
 		if d.IsDir() {
-			if ignoreDirs[name] {
+			if ignoreDirs[name] || extraDirs[name] {
 				return filepath.SkipDir
 			}
 			return nil
@@ -110,6 +127,12 @@ func Dir(root string) ([]FileInfo, error) {
 
 		for _, suffix := range ignoreSuffixes {
 			if strings.HasSuffix(name, suffix) {
+				return nil
+			}
+		}
+
+		for _, pat := range patterns {
+			if matched, _ := filepath.Match(pat, name); matched {
 				return nil
 			}
 		}

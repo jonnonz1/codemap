@@ -93,3 +93,72 @@ func (g *GoogleSummarizer) Summarize(path string, source []byte) (*SummaryResult
 
 	return parseSummaryJSON(result.Candidates[0].Content.Parts[0].Text)
 }
+
+// SummarizeBatch summarizes multiple files in a single API call.
+func (g *GoogleSummarizer) SummarizeBatch(paths []string, sources [][]byte) ([]*SummaryResult, error) {
+	prompt := buildBatchPrompt(paths, sources)
+
+	url := fmt.Sprintf("%s/%s:generateContent?key=%s", googleAPIBase, g.Model, g.APIKey)
+
+	maxTokens := 256 * len(paths)
+	if maxTokens > 4096 {
+		maxTokens = 4096
+	}
+
+	body, _ := json.Marshal(struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+		GenerationConfig struct {
+			MaxOutputTokens int `json:"maxOutputTokens"`
+		} `json:"generationConfig"`
+	}{
+		Contents: []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		}{{Parts: []struct {
+			Text string `json:"text"`
+		}{{Text: prompt}}}},
+		GenerationConfig: struct {
+			MaxOutputTokens int `json:"maxOutputTokens"`
+		}{MaxOutputTokens: maxTokens},
+	})
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("google batch API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("google API %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+	}
+
+	var result struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parsing google batch response: %w", err)
+	}
+	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("empty google batch response")
+	}
+
+	return parseBatchSummaryJSON(result.Candidates[0].Content.Parts[0].Text, len(paths))
+}

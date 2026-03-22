@@ -81,6 +81,60 @@ func langFromExt(ext string) string {
 	}
 }
 
+// buildBatchPrompt creates a single prompt that asks the LLM to summarize
+// multiple files at once, returning a JSON array.
+func buildBatchPrompt(paths []string, sources [][]byte) string {
+	var b strings.Builder
+	b.WriteString("Analyze each source file below and return ONLY a JSON array with one object per file, in order.\n")
+	b.WriteString("Each object must have these fields:\n")
+	b.WriteString("- \"path\": the file path (echo it back exactly)\n")
+	b.WriteString("- \"summary\": one-sentence description (max 100 chars)\n")
+	b.WriteString("- \"when_to_use\": when a developer would read/edit this file (max 100 chars)\n")
+	b.WriteString("- \"keywords\": array of 3-6 lowercase keywords\n\n")
+	b.WriteString("Return ONLY valid JSON array, no markdown fencing, no explanation.\n\n")
+
+	for i, path := range paths {
+		src := string(sources[i])
+		if len(src) > maxSourceBytes {
+			src = src[:maxSourceBytes] + "\n... (truncated)"
+		}
+		ext := filepath.Ext(path)
+		lang := langFromExt(ext)
+		b.WriteString(fmt.Sprintf("--- File %d: %s ---\n```%s\n%s\n```\n\n", i+1, path, lang, src))
+	}
+
+	return b.String()
+}
+
+// parseBatchSummaryJSON extracts a slice of SummaryResult from a JSON array response.
+func parseBatchSummaryJSON(text string, count int) ([]*SummaryResult, error) {
+	text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
+
+	var results []struct {
+		Path      string   `json:"path"`
+		Summary   string   `json:"summary"`
+		WhenToUse string   `json:"when_to_use"`
+		Keywords  []string `json:"keywords"`
+	}
+	if err := json.Unmarshal([]byte(text), &results); err != nil {
+		return nil, fmt.Errorf("parsing batch summary JSON: %w", err)
+	}
+
+	out := make([]*SummaryResult, count)
+	for i := 0; i < count && i < len(results); i++ {
+		out[i] = &SummaryResult{
+			Summary:   results[i].Summary,
+			WhenToUse: results[i].WhenToUse,
+			Keywords:  results[i].Keywords,
+		}
+	}
+	return out, nil
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

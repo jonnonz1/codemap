@@ -86,3 +86,63 @@ func (a *AnthropicSummarizer) Summarize(path string, source []byte) (*SummaryRes
 
 	return parseSummaryJSON(result.Content[0].Text)
 }
+
+// SummarizeBatch summarizes multiple files in a single API call.
+func (a *AnthropicSummarizer) SummarizeBatch(paths []string, sources [][]byte) ([]*SummaryResult, error) {
+	prompt := buildBatchPrompt(paths, sources)
+
+	// Scale max tokens with batch size.
+	maxTokens := 256 * len(paths)
+	if maxTokens > 4096 {
+		maxTokens = 4096
+	}
+
+	body, _ := json.Marshal(struct {
+		Model     string `json:"model"`
+		MaxTokens int    `json:"max_tokens"`
+		Messages  []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}{
+		Model:     a.Model,
+		MaxTokens: maxTokens,
+		Messages: []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}{{Role: "user", Content: prompt}},
+	})
+
+	req, err := http.NewRequest("POST", anthropicAPI, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", a.APIKey)
+	req.Header.Set("anthropic-version", anthropicVersion)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic batch API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("anthropic API %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+	}
+
+	var result struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parsing anthropic batch response: %w", err)
+	}
+	if len(result.Content) == 0 {
+		return nil, fmt.Errorf("empty anthropic batch response")
+	}
+
+	return parseBatchSummaryJSON(result.Content[0].Text, len(paths))
+}

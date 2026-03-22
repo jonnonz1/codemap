@@ -55,13 +55,27 @@ func (c *LLMConfig) ResolveAPIKey() string {
 	return ""
 }
 
+// DefaultIgnorePatterns are file glob patterns excluded from builds by default.
+// These target non-code files that rarely benefit from semantic indexing.
+// Override by setting scan.ignore_patterns in .codemap.yaml.
+var DefaultIgnorePatterns = []string{
+	"*.md",
+	"*.json",
+	"*.yaml",
+	"*.yml",
+	"*.toml",
+}
+
 // ScanConfig holds file scanning preferences.
 type ScanConfig struct {
 	// Additional directories to ignore beyond the built-in list.
 	IgnoreDirs []string `yaml:"ignore_dirs,omitempty"`
 
-	// Additional file patterns to ignore.
+	// File glob patterns to ignore. Defaults to DefaultIgnorePatterns if empty.
 	IgnorePatterns []string `yaml:"ignore_patterns,omitempty"`
+
+	// Set to true to disable all default ignore patterns.
+	NoDefaults bool `yaml:"no_defaults,omitempty"`
 }
 
 // Default returns a Config with sensible defaults.
