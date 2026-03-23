@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -35,12 +36,40 @@ import (
 	"github.com/jonnonz1/codemap/internal/taskfile"
 )
 
-// Set via -ldflags at build time.
+// Set via -ldflags at build time. Falls back to Go module build info.
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version = ""
+	commit  = ""
+	date    = ""
 )
+
+func init() {
+	if version != "" {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		version = "dev"
+		return
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	} else {
+		version = "dev"
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			if len(s.Value) > 7 {
+				commit = s.Value[:7]
+			} else {
+				commit = s.Value
+			}
+		case "vcs.time":
+			date = s.Value
+		}
+	}
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -69,8 +98,12 @@ func main() {
 	switch os.Args[1] {
 	case "version", "--version", "-v":
 		fmt.Printf("codemap %s\n", version)
-		fmt.Printf("  commit: %s\n", commit)
-		fmt.Printf("  built:  %s\n", date)
+		if commit != "" {
+			fmt.Printf("  commit: %s\n", commit)
+		}
+		if date != "" {
+			fmt.Printf("  built:  %s\n", date)
+		}
 		return
 	case "init":
 		runInit(repoRoot)
