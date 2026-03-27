@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -97,15 +98,33 @@ func RegisterTools(s *Server, repoRoot string, cfg *config.Config) {
 			selectedPaths = append(selectedPaths, f.Path)
 		}
 
+		// Compute token estimates from actual file sizes.
+		totalBytes := 0
+		for _, e := range cm.Entries {
+			info, err := os.Stat(filepath.Join(repoRoot, e.Path))
+			if err == nil {
+				totalBytes += int(info.Size())
+			}
+		}
+		selectedBytes := 0
+		for _, f := range result.ContextFiles {
+			selectedBytes += len(f.Source)
+		}
+		for _, f := range result.KnowledgeFiles {
+			selectedBytes += len(f.Source)
+		}
+
 		_ = stats.Log(cacheDir, &stats.Event{
-			Type:          stats.EventSelect,
-			Timestamp:     time.Now(),
-			TaskFile:      "__mcp__",
-			TaskBody:      input.Task,
-			SelectedFiles: selectedPaths,
-			SelectedCount: len(selectedPaths),
-			TotalIndexed:  len(cm.Entries),
-			CandidatePool: countCandidates(cm, tf),
+			Type:           stats.EventSelect,
+			Timestamp:      time.Now(),
+			TaskFile:       "__mcp__",
+			TaskBody:       input.Task,
+			SelectedFiles:  selectedPaths,
+			SelectedCount:  len(selectedPaths),
+			TotalIndexed:   len(cm.Entries),
+			CandidatePool:  countCandidates(cm, tf),
+			TotalTokens:    stats.EstimateTokens(totalBytes),
+			SelectedTokens: stats.EstimateTokens(selectedBytes),
 		})
 
 		// Build response with full source.

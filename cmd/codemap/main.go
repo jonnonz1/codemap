@@ -353,16 +353,31 @@ func runSelect(st store.Store, cfg *config.Config, cacheDir, repoRoot string) {
 		writeFileBlock(cf, f)
 	}
 
+	// Compute token estimates from actual file sizes.
+	totalBytes := 0
+	for _, e := range cm.Entries {
+		info, err := os.Stat(filepath.Join(repoRoot, e.Path))
+		if err == nil {
+			totalBytes += int(info.Size())
+		}
+	}
+	selectedBytes := 0
+	for _, f := range allFiles {
+		selectedBytes += len(f.Source)
+	}
+
 	// Log select event for statistics.
 	_ = stats.Log(cacheDir, &stats.Event{
-		Type:          stats.EventSelect,
-		Timestamp:     time.Now(),
-		TaskFile:      taskPath,
-		TaskBody:      tf.Body,
-		SelectedFiles: selectedPaths,
-		SelectedCount: len(selectedPaths),
-		CandidatePool: len(cm.Entries),
-		TotalIndexed:  len(cm.Entries),
+		Type:           stats.EventSelect,
+		Timestamp:      time.Now(),
+		TaskFile:       taskPath,
+		TaskBody:       tf.Body,
+		SelectedFiles:  selectedPaths,
+		SelectedCount:  len(selectedPaths),
+		CandidatePool:  len(cm.Entries),
+		TotalIndexed:   len(cm.Entries),
+		TotalTokens:    stats.EstimateTokens(totalBytes),
+		SelectedTokens: stats.EstimateTokens(selectedBytes),
 	})
 
 	fromCache := ""
