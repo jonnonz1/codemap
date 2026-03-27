@@ -361,6 +361,7 @@ func runSelect(st store.Store, cfg *config.Config, cacheDir, repoRoot string) {
 		TaskBody:      tf.Body,
 		SelectedFiles: selectedPaths,
 		SelectedCount: len(selectedPaths),
+		CandidatePool: len(cm.Entries),
 		TotalIndexed:  len(cm.Entries),
 	})
 
@@ -464,12 +465,21 @@ func getGitChanges(repoRoot, evalTask string, numCommits int) map[string][]strin
 	result := make(map[string][]string)
 
 	// Get files changed in last N commits.
-	cmd := exec.Command("git", "diff", "--name-only", fmt.Sprintf("HEAD~%d", numCommits))
-	cmd.Dir = repoRoot
-	out, err := cmd.Output()
-	if err != nil {
-		// Fallback: try fewer commits.
-		cmd = exec.Command("git", "diff", "--name-only", "HEAD~1")
+	// Try progressively fewer commits if the repo doesn't have enough history.
+	var out []byte
+	for n := numCommits; n >= 1; n-- {
+		cmd := exec.Command("git", "diff", "--name-only", fmt.Sprintf("HEAD~%d", n))
+		cmd.Dir = repoRoot
+		var err error
+		out, err = cmd.Output()
+		if err == nil {
+			break
+		}
+		out = nil
+	}
+	if out == nil {
+		// Single-commit repo: list all tracked files as "changed".
+		cmd := exec.Command("git", "ls-files")
 		cmd.Dir = repoRoot
 		out, _ = cmd.Output()
 	}
