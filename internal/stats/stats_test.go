@@ -191,11 +191,42 @@ func TestPrintTokenSavings(t *testing.T) {
 	if !strings.Contains(out, "Context Window Savings") {
 		t.Error("should show Context Window Savings section")
 	}
+	// Cumulative reduction: 150000/200000 = 75%
 	if !strings.Contains(out, "75%") {
 		t.Error("should show 75% reduction")
 	}
 	if !strings.Contains(out, "150.0K") {
 		t.Error("should show 150.0K tokens saved")
+	}
+	if !strings.Contains(out, "Total repo context") {
+		t.Error("should show 'Total repo context' label")
+	}
+	if !strings.Contains(out, "Selected context") {
+		t.Error("should show 'Selected context' label")
+	}
+}
+
+func TestPrintTokenSavingsUsesCumulativeReduction(t *testing.T) {
+	// Verify the percentage is the cumulative ratio, not the simple average.
+	// Event 1: 1000 total, 100 selected → 90% reduction
+	// Event 2: 100000 total, 90000 selected → 10% reduction
+	// Simple avg = 50%, cumulative = (900+10000)/101000 = ~10.8%
+	r := &Report{
+		TotalSelections:   2,
+		TotalTokensSaved:  10900,   // 900 + 10000
+		TotalTokensTotal:  101000,  // 1000 + 100000
+		AvgTokenReduction: 0.50,    // simple avg (should NOT appear in output)
+	}
+	var buf bytes.Buffer
+	Print(r, &buf)
+	out := buf.String()
+
+	// Should show ~11% (cumulative), NOT 50% (simple average).
+	if strings.Contains(out, "50%") {
+		t.Error("should use cumulative reduction (11%), not simple average (50%)")
+	}
+	if !strings.Contains(out, "11%") {
+		t.Errorf("should show cumulative reduction ~11%%, got output:\n%s", out)
 	}
 }
 

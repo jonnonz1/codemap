@@ -331,10 +331,13 @@ func Print(r *Report, w io.Writer) {
 
 	// Token savings.
 	if r.TotalTokensTotal > 0 {
+		cumulativeReduction := float64(r.TotalTokensSaved) / float64(r.TotalTokensTotal)
+		selectedTokens := r.TotalTokensTotal - r.TotalTokensSaved
+
 		fmt.Fprintln(w, "Context Window Savings")
-		fmt.Fprintf(w, "  Tokens without codemap: %s\n", formatTokens(r.TotalTokensTotal))
-		fmt.Fprintf(w, "  Tokens with codemap:    %s\n", formatTokens(r.TotalTokensTotal-r.TotalTokensSaved))
-		fmt.Fprintf(w, "  Tokens saved:           %s (%.0f%% reduction)\n", formatTokens(r.TotalTokensSaved), r.AvgTokenReduction*100)
+		fmt.Fprintf(w, "  Total repo context:     %s tokens (all indexed files)\n", formatTokens(r.TotalTokensTotal))
+		fmt.Fprintf(w, "  Selected context:       %s tokens (files codemap chose)\n", formatTokens(selectedTokens))
+		fmt.Fprintf(w, "  Tokens saved:           %s (%.0f%% reduction)\n", formatTokens(r.TotalTokensSaved), cumulativeReduction*100)
 
 		// Cost estimate: Claude Sonnet input = $3/MTok, Opus = $15/MTok.
 		sonnetSaved := float64(r.TotalTokensSaved) / 1_000_000 * 3.0
