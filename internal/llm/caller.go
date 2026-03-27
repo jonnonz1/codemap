@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -216,9 +217,26 @@ func (c *GoogleCaller) Call(prompt string) (string, error) {
 	return result.Candidates[0].Content.Parts[0].Text, nil
 }
 
-// MockCaller returns an empty selection for testing.
+// MockCaller returns all candidate files from the prompt for testing.
+// It parses the code map section to extract file paths, so select works
+// without a real LLM.
 type MockCaller struct{}
 
 func (c *MockCaller) Call(prompt string) (string, error) {
-	return `{"context_files": [], "reasoning": "mock caller"}`, nil
+	// Extract file paths from the code map in the prompt.
+	// Lines matching "- path/to/file.ext" are candidate files.
+	var files []string
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "- ") {
+			path := strings.TrimPrefix(line, "- ")
+			// Only include lines that look like file paths (contain a dot extension).
+			if strings.Contains(path, ".") && !strings.Contains(path, " ") {
+				files = append(files, path)
+			}
+		}
+	}
+
+	filesJSON, _ := json.Marshal(files)
+	return fmt.Sprintf(`{"context_files": %s, "reasoning": "mock caller — selected all candidates"}`, filesJSON), nil
 }
