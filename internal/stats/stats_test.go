@@ -139,6 +139,115 @@ func TestComputeWithEval(t *testing.T) {
 	}
 }
 
+func TestEstimateTokens(t *testing.T) {
+	if got := EstimateTokens(0); got != 0 {
+		t.Errorf("EstimateTokens(0) = %d, want 0", got)
+	}
+	if got := EstimateTokens(400); got != 100 {
+		t.Errorf("EstimateTokens(400) = %d, want 100", got)
+	}
+	// 1 byte → ceil(1/4) = 1
+	if got := EstimateTokens(1); got != 1 {
+		t.Errorf("EstimateTokens(1) = %d, want 1", got)
+	}
+}
+
+func TestComputeTokenSavings(t *testing.T) {
+	now := time.Now()
+	events := []Event{
+		{Type: EventSelect, Timestamp: now, TaskFile: "task.md",
+			SelectedFiles: []string{"a.go"}, SelectedCount: 1, TotalIndexed: 10,
+			TotalTokens: 10000, SelectedTokens: 2000},
+		{Type: EventSelect, Timestamp: now, TaskFile: "task2.md",
+			SelectedFiles: []string{"b.go"}, SelectedCount: 1, TotalIndexed: 10,
+			TotalTokens: 20000, SelectedTokens: 4000},
+	}
+
+	r := Compute(events, nil)
+
+	if r.TotalTokensSaved != 24000 {
+		t.Errorf("TotalTokensSaved = %d, want 24000", r.TotalTokensSaved)
+	}
+	if r.TotalTokensTotal != 30000 {
+		t.Errorf("TotalTokensTotal = %d, want 30000", r.TotalTokensTotal)
+	}
+	// (0.8 + 0.8) / 2 = 0.8
+	if r.AvgTokenReduction < 0.79 || r.AvgTokenReduction > 0.81 {
+		t.Errorf("AvgTokenReduction = %f, want ~0.8", r.AvgTokenReduction)
+	}
+}
+
+func TestPrintTokenSavings(t *testing.T) {
+	r := &Report{
+		TotalSelections:   2,
+		TotalTokensSaved:  150000,
+		TotalTokensTotal:  200000,
+		AvgTokenReduction: 0.75,
+	}
+	var buf bytes.Buffer
+	Print(r, &buf)
+	out := buf.String()
+
+	if !strings.Contains(out, "Context Window Savings") {
+		t.Error("should show Context Window Savings section")
+	}
+	// Cumulative reduction: 150000/200000 = 75%
+	if !strings.Contains(out, "75%") {
+		t.Error("should show 75% reduction")
+	}
+	if !strings.Contains(out, "150.0K") {
+		t.Error("should show 150.0K tokens saved")
+	}
+	if !strings.Contains(out, "Total repo context") {
+		t.Error("should show 'Total repo context' label")
+	}
+	if !strings.Contains(out, "Selected context") {
+		t.Error("should show 'Selected context' label")
+	}
+}
+
+func TestPrintTokenSavingsUsesCumulativeReduction(t *testing.T) {
+	// Verify the percentage is the cumulative ratio, not the simple average.
+	// Event 1: 1000 total, 100 selected → 90% reduction
+	// Event 2: 100000 total, 90000 selected → 10% reduction
+	// Simple avg = 50%, cumulative = (900+10000)/101000 = ~10.8%
+	r := &Report{
+		TotalSelections:   2,
+		TotalTokensSaved:  10900,   // 900 + 10000
+		TotalTokensTotal:  101000,  // 1000 + 100000
+		AvgTokenReduction: 0.50,    // simple avg (should NOT appear in output)
+	}
+	var buf bytes.Buffer
+	Print(r, &buf)
+	out := buf.String()
+
+	// Should show ~11% (cumulative), NOT 50% (simple average).
+	if strings.Contains(out, "50%") {
+		t.Error("should use cumulative reduction (11%), not simple average (50%)")
+	}
+	if !strings.Contains(out, "11%") {
+		t.Errorf("should show cumulative reduction ~11%%, got output:\n%s", out)
+	}
+}
+
+func TestFormatTokens(t *testing.T) {
+	tests := []struct {
+		input int
+		want  string
+	}{
+		{500, "500"},
+		{1500, "1.5K"},
+		{150000, "150.0K"},
+		{1500000, "1.5M"},
+	}
+	for _, tt := range tests {
+		got := formatTokens(tt.input)
+		if got != tt.want {
+			t.Errorf("formatTokens(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 func TestPrintNoData(t *testing.T) {
 	r := &Report{}
 	var buf bytes.Buffer

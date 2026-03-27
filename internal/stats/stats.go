@@ -39,6 +39,10 @@ type Event struct {
 	SelectedCount int      `json:"selected_count,omitempty"`
 	CandidatePool int      `json:"candidate_pool,omitempty"`
 	TotalIndexed  int      `json:"total_indexed,omitempty"`
+
+	// Token fields (estimated from source bytes).
+	TotalTokens    int `json:"total_tokens,omitempty"`    // tokens if all files loaded
+	SelectedTokens int `json:"selected_tokens,omitempty"` // tokens for selected files only
 }
 
 // CacheHitRate returns the fraction of files that were unchanged in a build event.
@@ -89,6 +93,12 @@ func LoadEvents(cacheDir string) ([]Event, error) {
 	return events, nil
 }
 
+// EstimateTokens estimates the token count for a byte size.
+// Uses the ~4 chars per token heuristic common across LLMs.
+func EstimateTokens(bytes int) int {
+	return (bytes + 3) / 4
+}
+
 // Report holds computed statistics across all logged events.
 type Report struct {
 	// Build stats.
@@ -102,6 +112,11 @@ type Report struct {
 	AvgSelectedFiles    float64
 	AvgContextReduction float64 // 1 - (selected/total), as percentage
 	LastSelection       time.Time
+
+	// Token savings stats.
+	TotalTokensSaved   int     // cumulative tokens saved across all selections
+	TotalTokensTotal   int     // cumulative total tokens across all selections
+	AvgTokenReduction  float64 // average % of tokens saved per selection
 
 	// Accuracy stats (computed against git).
 	Evaluations    int
@@ -139,6 +154,8 @@ func ComputeFull(events []Event, gitChanges map[string][]string, toolUses []Tool
 	var cacheHitSum float64
 	var selectedSum float64
 	var reductionSum float64
+	var tokenReductionSum float64
+	var tokenReductionCount int
 
 	for _, e := range events {
 		switch e.Type {
@@ -161,6 +178,15 @@ func ComputeFull(events []Event, gitChanges map[string][]string, toolUses []Tool
 				r.LastSelection = e.Timestamp
 			}
 
+			// Token savings.
+			if e.TotalTokens > 0 {
+				saved := e.TotalTokens - e.SelectedTokens
+				r.TotalTokensSaved += saved
+				r.TotalTokensTotal += e.TotalTokens
+				tokenReductionSum += 1.0 - float64(e.SelectedTokens)/float64(e.TotalTokens)
+				tokenReductionCount++
+			}
+
 			// Evaluate accuracy if we have git changes for this selection.
 			// Check for exact task file match or wildcard "*" (all tasks).
 			changed, ok := gitChanges[e.TaskFile]
@@ -181,6 +207,9 @@ func ComputeFull(events []Event, gitChanges map[string][]string, toolUses []Tool
 	if r.TotalSelections > 0 {
 		r.AvgSelectedFiles = selectedSum / float64(r.TotalSelections)
 		r.AvgContextReduction = reductionSum / float64(r.TotalSelections)
+	}
+	if tokenReductionCount > 0 {
+		r.AvgTokenReduction = tokenReductionSum / float64(tokenReductionCount)
 	}
 
 	if r.Evaluations > 0 {
@@ -263,6 +292,17 @@ func evaluate(e Event, actualChanged []string) EvalDetail {
 	}
 }
 
+func formatTokens(tokens int) string {
+	switch {
+	case tokens >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(tokens)/1_000_000)
+	case tokens >= 1_000:
+		return fmt.Sprintf("%.1fK", float64(tokens)/1_000)
+	default:
+		return fmt.Sprintf("%d", tokens)
+	}
+}
+
 // Print writes the report to w in a human-readable format.
 func Print(r *Report, w io.Writer) {
 	fmt.Fprintln(w, "codemap statistics")
@@ -288,6 +328,25 @@ func Print(r *Report, w io.Writer) {
 		fmt.Fprintf(w, "  Last selection:      %s\n", r.LastSelection.Format("2006-01-02 15:04"))
 	}
 	fmt.Fprintln(w)
+
+	// Token savings.
+	if r.TotalTokensTotal > 0 {
+		cumulativeReduction := float64(r.TotalTokensSaved) / float64(r.TotalTokensTotal)
+		selectedTokens := r.TotalTokensTotal - r.TotalTokensSaved
+
+		fmt.Fprintln(w, "Context Window Savings")
+		fmt.Fprintf(w, "  Total repo context:     %s tokens (all indexed files)\n", formatTokens(r.TotalTokensTotal))
+		fmt.Fprintf(w, "  Selected context:       %s tokens (files codemap chose)\n", formatTokens(selectedTokens))
+		fmt.Fprintf(w, "  Tokens saved:           %s (%.0f%% reduction)\n", formatTokens(r.TotalTokensSaved), cumulativeReduction*100)
+
+		// Cost estimate: Claude Sonnet input = $3/MTok, Opus = $15/MTok.
+		sonnetSaved := float64(r.TotalTokensSaved) / 1_000_000 * 3.0
+		opusSaved := float64(r.TotalTokensSaved) / 1_000_000 * 15.0
+		if sonnetSaved >= 0.01 {
+			fmt.Fprintf(w, "  Est. cost saved:        $%.2f (Sonnet) / $%.2f (Opus)\n", sonnetSaved, opusSaved)
+		}
+		fmt.Fprintln(w)
+	}
 
 	// Accuracy stats.
 	if r.Evaluations > 0 {
