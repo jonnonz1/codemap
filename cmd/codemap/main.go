@@ -71,10 +71,32 @@ func init() {
 	}
 }
 
+const logo = `
+   ___          _
+  / __\___   __| | ___ _ __ ___   __ _ _ __
+ / /  / _ \ / _` + "`" + ` |/ _ \ '_ ` + "`" + ` _ \ / _` + "`" + ` | '_ \
+/ /__| (_) | (_| |  __/ | | | | | (_| | |_) |
+\____/\___/ \__,_|\___|_| |_| |_|\__,_| .__/
+                                       |_|`
+
+func printBanner() {
+	fmt.Fprintln(os.Stderr, logo)
+	fmt.Fprintln(os.Stderr)
+}
+
 func main() {
 	if len(os.Args) < 2 {
+		printBanner()
 		printUsage()
 		os.Exit(1)
+	}
+
+	cmd := os.Args[1]
+	switch cmd {
+	case "mcp", "track-tool", "context":
+		// machine-consumed commands — no banner
+	default:
+		printBanner()
 	}
 
 	repoRoot, err := findRepoRoot()
