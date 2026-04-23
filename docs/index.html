@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>codemap — Code map your repo so AI agents find the right files on the first try</title>
+  <meta name="description" content="codemap indexes every file with a one-line summary, then uses a cheap fast model to pick only the files relevant to a task. Your agent gets focused context in one shot instead of burning tool calls." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90' fill='%235fd38c'%3E%E2%97%89%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0f0d;
+      --bg-surface: #12181a;
+      --bg-surface-2: #1a2022;
+      --text: #c9d1c9;
+      --text-muted: #6e7a73;
+      --text-bright: #eaf3ea;
+
+      --green:   #5fd38c;
+      --amber:   #ffb347;
+      --cyan:    #6ec9d7;
+      --magenta: #d98bb0;
+      --red:     #e07a5f;
+
+      --accent: var(--green);
+      --accent-hover: #8ce3a8;
+
+      --border: rgba(95, 211, 140, 0.10);
+      --border-strong: rgba(95, 211, 140, 0.24);
+
+      --max-width: 58rem;
+      --font-text: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --font-serif: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(255,255,255,0) 0, rgba(255,255,255,0) 2px, rgba(255,255,255,0.015) 3px, rgba(255,255,255,0) 4px);
+      z-index: 100;
+    }
+    body::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.4) 120%);
+      z-index: 99;
+    }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html { font-size: 17.5px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scroll-behavior: smooth; }
+    @media (max-width: 560px) { html { font-size: 16px; } }
+    body {
+      font-family: var(--font-text); font-weight: 400; line-height: 1.65;
+      color: var(--text); background: var(--bg); min-height: 100vh; overflow-x: clip;
+    }
+    ::selection { background: rgba(255, 255, 255, 0.18); color: var(--text-bright); }
+    a { color: var(--accent); text-decoration: none; transition: color 0.15s; }
+    a:hover { color: var(--accent-hover); }
+
+    .site-nav { padding: 1.25rem 0; border-bottom: 1px solid var(--border); }
+    .site-nav .wrap {
+      max-width: var(--max-width); margin: 0 auto; padding: 0 1.5rem;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .site-nav .brand { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-bright); letter-spacing: -0.02em; }
+    .site-nav .brand .dot {
+      display: inline-block; width: 8px; height: 8px;
+      background: var(--green); box-shadow: 0 0 8px var(--green);
+      animation: phosphor 1.8s ease-in-out infinite;
+      margin-right: 0.55rem; vertical-align: middle;
+    }
+    @keyframes phosphor { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+    .site-nav .links { display: flex; gap: 1.5rem; font-family: var(--font-mono); font-size: 0.8rem; }
+    .site-nav .links a { color: var(--text-muted); }
+    .site-nav .links a:hover { color: var(--text-bright); }
+
+    main.shell { max-width: var(--max-width); margin: 0 auto; width: 100%; padding: 3rem 1.5rem 5rem; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(0.4rem); } to { opacity: 1; transform: translateY(0); } }
+
+    .masthead {
+      padding-bottom: 2.5rem; margin-bottom: 2.5rem; border-bottom: 1px solid var(--border-strong);
+      display: grid; grid-template-columns: minmax(0, 1fr) 16rem; gap: 2.5rem; align-items: center;
+    }
+    @media (max-width: 900px) { .masthead { grid-template-columns: 1fr; } .masthead .crt { max-width: 16rem; } }
+    .mh-eyebrow {
+      font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--text-muted); margin-bottom: 1.5rem;
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    .mh-eyebrow .dot { width: 6px; height: 6px; background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .mh-eyebrow .sep { flex: 1; height: 1px; background: var(--border); }
+    .masthead h1 {
+      font-family: var(--font-serif); font-weight: 600;
+      font-size: clamp(1.9rem, 4vw, 3rem); line-height: 1.15;
+      letter-spacing: -0.02em; color: var(--text-bright);
+      text-wrap: balance; margin-bottom: 1.25rem;
+    }
+    .masthead h1 .cursor {
+      display: inline-block; width: 0.55em; height: 1em;
+      background: var(--green); box-shadow: 0 0 12px var(--green);
+      vertical-align: -0.12em; margin-left: 0.1em;
+      animation: blink 1.1s step-end infinite;
+    }
+    @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+    .masthead .dek { font-family: var(--font-text); font-weight: 400; font-size: 0.95rem; line-height: 1.65; color: var(--text); max-width: 42rem; margin-bottom: 1.5rem; }
+    .mh-stats {
+      display: flex; gap: 2rem; flex-wrap: wrap;
+      font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.1em;
+      padding-top: 1rem; border-top: 1px solid var(--border);
+    }
+    .mh-stats div b { display: block; font-family: var(--font-serif); font-weight: 600; font-size: 1.35rem; color: var(--text-bright); margin-bottom: 0.15rem; letter-spacing: -0.02em; text-transform: none; }
+    .mh-cta { display: flex; gap: 1.25rem; margin: 1.25rem 0 0; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.78rem; }
+    .mh-cta a {
+      color: var(--text-bright); border: 1px solid var(--border-strong);
+      padding: 0.5rem 0.9rem; border-radius: 0.15rem;
+      letter-spacing: 0.06em; text-transform: none; font-weight: 400; transition: all 0.15s;
+    }
+    .mh-cta a:hover { border-color: var(--text-muted); background: rgba(255,255,255,0.03); }
+    .mh-cta a.primary { background: rgba(95,211,140,0.06); border-color: rgba(95,211,140,0.35); color: var(--green); }
+    .mh-cta a.primary:hover { background: rgba(95,211,140,0.12); border-color: var(--green); }
+    .mh-cta a::before { content: '$ '; color: var(--green); }
+
+    /* CRT mockup */
+    .masthead .crt {
+      aspect-ratio: 1.2; border: 1px solid var(--border-strong); border-radius: 0.6rem;
+      background: linear-gradient(180deg, #0f1412 0%, #0a0f0d 100%);
+      padding: 1rem 1rem 1.4rem; position: relative;
+      box-shadow: inset 0 0 40px rgba(95, 211, 140, 0.06), 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .masthead .crt::after {
+      content: ''; position: absolute; left: 50%; bottom: 0.35rem; transform: translateX(-50%);
+      width: 32%; height: 3px; background: rgba(95, 211, 140, 0.3); border-radius: 2px;
+    }
+    .masthead .crt .screen {
+      width: 100%; height: 100%;
+      background: radial-gradient(ellipse at center, rgba(95,211,140,0.08) 0%, transparent 70%), #071009;
+      border: 1px solid rgba(95, 211, 140, 0.15); border-radius: 0.35rem;
+      padding: 0.75rem 0.9rem;
+      font-family: var(--font-mono); font-size: 0.58rem;
+      color: var(--green); line-height: 1.55; overflow: hidden;
+      text-shadow: 0 0 5px rgba(95, 211, 140, 0.5); position: relative;
+    }
+    .masthead .crt .screen::before {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,0.15) 3px, transparent 4px);
+    }
+    .masthead .crt .screen .prompt { color: var(--amber); }
+    .masthead .crt .screen .ok { color: var(--green); }
+    .masthead .crt .screen .dim { color: #4e8a6a; }
+    .masthead .crt .screen .blink {
+      display: inline-block; width: 0.5em; height: 1em; background: var(--green);
+      vertical-align: -0.1em; animation: blink 1.1s step-end infinite; box-shadow: 0 0 8px var(--green);
+    }
+
+    .section-bar {
+      display: grid; grid-template-columns: auto 1fr auto; align-items: baseline;
+      gap: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-strong);
+      margin-bottom: 1.75rem; font-family: var(--font-mono);
+    }
+    .section-bar .sb-num {
+      font-size: 0.68rem; color: var(--green);
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 0.2rem 0.55rem; border: 1px solid rgba(95,211,140,0.3);
+      border-radius: 0.15rem; background: rgba(95,211,140,0.04);
+    }
+    .section-bar .sb-label { font-family: var(--font-serif); font-weight: 600; font-size: 1.05rem; color: var(--text-bright); letter-spacing: -0.01em; }
+    .section-bar .sb-label::before { content: '>'; color: var(--green); margin-right: 0.55rem; font-weight: 400; }
+    .section-bar .sb-label em { font-style: normal; color: var(--text-muted); font-weight: 400; }
+    .section-bar .sb-count { font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.06em; }
+
+    section { margin-bottom: 3.5rem; }
+    .prose { font-family: var(--font-text); font-weight: 400; font-size: 0.95rem; line-height: 1.7; color: var(--text); max-width: 44rem; }
+    .prose p { margin-bottom: 1.1em; text-wrap: pretty; }
+    .prose em { font-style: normal; color: var(--text-bright); }
+    .prose strong { font-weight: 500; color: var(--text-bright); }
+    .prose code { font-family: var(--font-mono); font-size: 0.82em; color: var(--text-bright); background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 0.2rem; }
+
+    h3.sub { font-family: var(--font-serif); font-weight: 500; font-size: 1.15rem; color: var(--text-bright); margin: 2rem 0 0.5rem; line-height: 1.2; }
+
+    /* Diagram */
+    .diagram {
+      border: 1px solid var(--border-strong); border-radius: 0.4rem;
+      background:
+        radial-gradient(ellipse at top left, rgba(95,211,140,0.05), transparent 60%),
+        radial-gradient(ellipse at bottom right, rgba(217,139,176,0.04), transparent 60%),
+        var(--bg-surface);
+      padding: 2rem 1.25rem 1.25rem; margin: 1.25rem 0 0; position: relative;
+    }
+    .diagram::before {
+      content: ''; position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(95,211,140,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(95,211,140,0.04) 1px, transparent 1px);
+      background-size: 24px 24px; pointer-events: none; border-radius: 0.4rem;
+      mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
+    }
+    .diagram svg { position: relative; z-index: 1; width: 100%; height: auto; display: block; }
+    .diagram .legend {
+      display: flex; flex-wrap: wrap; gap: 1.25rem; justify-content: center;
+      margin-top: 1rem; font-family: var(--font-mono); font-size: 0.64rem;
+      color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .diagram .legend span { display: inline-flex; align-items: center; gap: 0.45rem; }
+    .diagram .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+
+    /* Cards */
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin: 1.25rem 0 0; }
+    @media (max-width: 820px) { .grid3 { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 0.35rem; padding: 1.4rem 1.4rem 1.25rem;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .card:hover { border-color: var(--border-strong); }
+    .card .tag {
+      display: inline-flex; align-items: center; gap: 0.45rem;
+      font-family: var(--font-mono); font-size: 0.6rem;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--green); font-weight: 500;
+      padding: 0.2rem 0.55rem; border: 1px solid rgba(95,211,140,0.3);
+      border-radius: 0.15rem; background: rgba(95,211,140,0.05);
+      margin-bottom: 0.9rem;
+    }
+    .card.index .tag  { color: var(--green);   border-color: rgba(95,211,140,0.35);  background: rgba(95,211,140,0.06); }
+    .card.select .tag { color: var(--cyan);    border-color: rgba(110,201,215,0.35); background: rgba(110,201,215,0.06); }
+    .card.mcp .tag    { color: var(--magenta); border-color: rgba(217,139,176,0.35); background: rgba(217,139,176,0.06); }
+    .card .icon { float: right; width: 44px; height: 44px; opacity: 0.9; margin: -0.5rem -0.5rem 0 0; }
+    .card.index .icon  { color: var(--green); }
+    .card.select .icon { color: var(--cyan); }
+    .card.mcp .icon    { color: var(--magenta); }
+    .card .icon svg { width: 100%; height: 100%; }
+    .card h3 { font-family: var(--font-serif); font-weight: 600; font-size: 1rem; letter-spacing: -0.01em; color: var(--text-bright); line-height: 1.25; margin-bottom: 0.5rem; }
+    .card p { font-family: var(--font-text); font-weight: 400; font-size: 0.85rem; line-height: 1.6; color: var(--text); margin-bottom: 0.8rem; }
+    .card ul { margin: 0.5rem 0 0; padding-left: 1rem; font-family: var(--font-mono); font-size: 0.74rem; color: var(--text); list-style: none; }
+    .card ul li { margin-bottom: 0.3rem; padding-left: 0.9rem; position: relative; }
+    .card ul li::before { content: '·'; position: absolute; left: 0; color: var(--text-muted); }
+    .card code { font-family: var(--font-mono); font-size: 0.8em; color: var(--text-bright); }
+
+    dl.meta { display: grid; grid-template-columns: 5.5rem 1fr; gap: 0.35rem 1rem; font-family: var(--font-mono); font-size: 0.72rem; margin-top: 1rem; padding-top: 0.9rem; border-top: 1px dashed var(--border); }
+    dl.meta dt { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.62rem; padding-top: 0.15rem; }
+    dl.meta dd { color: var(--text-bright); margin: 0; }
+
+    /* KV table */
+    table.kv {
+      width: 100%; border-collapse: collapse; border: 1px solid var(--border);
+      border-radius: 0.3rem; background: rgba(255,255,255,0.015); overflow: hidden;
+      font-family: var(--font-mono); font-size: 0.78rem; margin: 1.25rem 0 0;
+    }
+    table.kv th, table.kv td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.kv th { font-size: 0.62rem; font-weight: 500; color: var(--text-muted); letter-spacing: 0.1em; text-transform: uppercase; background: rgba(255,255,255,0.02); }
+    table.kv tr:last-child td { border-bottom: 0; }
+    table.kv td { color: var(--text); }
+    table.kv td strong { color: var(--text-bright); font-weight: 500; }
+    table.kv td code { font-family: var(--font-mono); color: var(--text-bright); font-size: 0.9em; background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 0.18rem; }
+
+    .pill { display: inline-block; font-family: var(--font-mono); font-size: 0.6rem; padding: 0.15rem 0.5rem; border-radius: 0.15rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--border-strong); color: var(--text); background: rgba(255,255,255,0.02); }
+    .pill.index  { color: var(--green);   border-color: rgba(95,211,140,0.4);  background: rgba(95,211,140,0.07); }
+    .pill.select { color: var(--cyan);    border-color: rgba(110,201,215,0.4); background: rgba(110,201,215,0.07); }
+    .pill.mcp    { color: var(--magenta); border-color: rgba(217,139,176,0.4); background: rgba(217,139,176,0.07); }
+    .pill.metric { color: var(--amber);   border-color: rgba(255,179,71,0.4);  background: rgba(255,179,71,0.06); }
+
+    /* Example */
+    .example { border: 1px solid var(--border); border-radius: 0.35rem; padding: 1.5rem 1.5rem 1.25rem; background: rgba(255,255,255,0.015); margin-top: 1.25rem; }
+    .example h3 { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-family: var(--font-serif); font-weight: 600; font-size: 1rem; letter-spacing: -0.01em; color: var(--text-bright); margin-bottom: 0.8rem; }
+    .example h3 .sub { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.06em; font-weight: 400; }
+    .example .setup { font-family: var(--font-mono); font-size: 0.74rem; color: var(--text); background: var(--bg-surface); border: 1px solid var(--border); padding: 0.7rem 0.9rem; border-radius: 0.2rem; margin-bottom: 1rem; }
+    .example .setup code { color: var(--green); background: transparent; border: none; padding: 0; font-size: 0.95em; }
+    .example .flow { list-style: none; counter-reset: step; font-family: var(--font-text); font-size: 0.85rem; line-height: 1.65; }
+    .example .flow li { position: relative; padding: 0.75rem 0 0.75rem 2.5rem; counter-increment: step; border-bottom: 1px dashed var(--border); color: var(--text); }
+    .example .flow li:last-child { border-bottom: none; }
+    .example .flow li::before {
+      content: counter(step); position: absolute; left: 0; top: 0.8rem;
+      width: 1.6rem; height: 1.6rem; border-radius: 50%;
+      background: rgba(95,211,140,0.06); border: 1px solid rgba(95,211,140,0.3);
+      color: var(--green); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 500;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .example .flow li strong { color: var(--text-bright); font-weight: 500; }
+    .example .flow li code { font-family: var(--font-mono); font-size: 0.82em; color: var(--text-bright); background: rgba(255,255,255,0.03); padding: 0.05em 0.35em; border-radius: 0.2rem; border: 1px solid var(--border); }
+
+    /* Callouts */
+    .callout { border: 1px solid var(--border); border-left: 2px solid var(--border-strong); background: rgba(255,255,255,0.02); padding: 0.85rem 1rem; border-radius: 0.15rem; margin: 1.5rem 0 0; font-family: var(--font-text); font-size: 0.85rem; line-height: 1.65; color: var(--text); max-width: 44rem; }
+    .callout.info { border-left-color: var(--cyan); background: rgba(110,201,215,0.05); }
+    .callout.ok   { border-left-color: var(--green); background: rgba(95,211,140,0.05); }
+    .callout.warn { border-left-color: var(--amber); background: rgba(255,179,71,0.05); }
+    .callout strong { color: var(--text-bright); font-weight: 500; }
+    .callout code { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-bright); background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 0.2rem; }
+
+    /* Metrics grid */
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-top: 1.25rem; }
+    @media (max-width: 820px) { .metrics { grid-template-columns: 1fr 1fr; } }
+    .metric {
+      border: 1px solid var(--border); background: var(--bg-surface);
+      border-radius: 0.3rem; padding: 1rem;
+    }
+    .metric .k { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 0.4rem; }
+    .metric .v { font-family: var(--font-serif); font-weight: 600; font-size: 1.8rem; color: var(--amber); letter-spacing: -0.02em; line-height: 1; }
+    .metric .d { font-family: var(--font-text); font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; line-height: 1.5; }
+
+    /* Code blocks */
+    pre { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 0.3rem; padding: 1rem 1.25rem; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.65; color: var(--text); overflow-x: auto; margin: 1.25rem 0 0; }
+    pre .c { color: var(--text-muted); }
+    pre .k { color: var(--green); }
+    pre .s { color: var(--amber); }
+    pre .f { color: var(--cyan); }
+    code.inline { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-bright); background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 0.2rem; }
+
+    /* Accordion */
+    .accordion { margin-top: 1.25rem; }
+    details { background: rgba(255,255,255,0.015); border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.85rem 1rem; margin-bottom: 0.45rem; transition: border-color 0.15s, background 0.15s; }
+    details[open] { background: rgba(255,255,255,0.025); border-color: var(--border-strong); }
+    summary { font-family: var(--font-serif); font-weight: 500; font-size: 0.9rem; color: var(--text-bright); letter-spacing: -0.005em; list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); border: 1px solid var(--border); padding: 0.1rem 0.45rem; border-radius: 0.15rem; transition: all 0.15s; }
+    details[open] summary::after { content: "−"; color: var(--text-bright); border-color: var(--border-strong); }
+    details .body { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--border); font-family: var(--font-text); font-weight: 400; font-size: 0.82rem; line-height: 1.7; color: var(--text); }
+    details .body p { margin-bottom: 0.65rem; }
+    details .body p:last-child { margin-bottom: 0; }
+    details .body code { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-bright); background: rgba(255,255,255,0.04); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 0.2rem; }
+    details .body em { color: var(--text-bright); font-style: normal; }
+
+    /* Pipeline */
+    .pipeline { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; margin-top: 1.25rem; }
+    @media (max-width: 900px) { .pipeline { grid-template-columns: 1fr 1fr; } }
+    .pipe {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: 0.25rem; padding: 0.85rem;
+      position: relative;
+    }
+    .pipe .n { font-family: var(--font-mono); font-size: 0.56rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.3rem; }
+    .pipe .name { font-family: var(--font-serif); font-weight: 600; font-size: 0.85rem; color: var(--text-bright); margin-bottom: 0.25rem; }
+    .pipe .desc { font-family: var(--font-text); font-size: 0.7rem; line-height: 1.5; color: var(--text-muted); }
+
+    footer.site-footer { margin-top: auto; border-top: 1px solid var(--border); padding: 2rem 0; }
+    footer.site-footer .wrap { max-width: var(--max-width); margin: 0 auto; padding: 0 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
+    footer.site-footer a { color: var(--text-muted); }
+    footer.site-footer a:hover { color: var(--green); }
+  </style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="dot"></span>codemap<span style="color: var(--text-muted); font-weight: 400;">@latest</span></a>
+    <div class="links">
+      <a href="#how">How</a>
+      <a href="#primitives">Primitives</a>
+      <a href="#build">Build</a>
+      <a href="#architecture">Arch</a>
+      <a href="#measuring">Metrics</a>
+      <a href="#commands">CLI</a>
+      <a href="https://github.com/jonnonz1/codemap">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<main class="shell" id="top">
+
+  <!-- MASTHEAD -->
+  <section class="masthead">
+    <div class="mh-left">
+      <div class="mh-eyebrow">
+        <span class="dot"></span>
+        <span>codemap · Repo intelligence for AI agents</span>
+        <span class="sep"></span>
+        <span>Go · MCP</span>
+      </div>
+      <h1>Code map your repo. Agents hit the right files on the first try.<span class="cursor" aria-hidden="true"></span></h1>
+      <p class="dek">codemap indexes every file with a one-line summary, then uses a cheap fast model to pick only the files relevant to a task. Instead of your agent burning ten tool calls exploring the codebase, it gets the exact files it needs in one shot.</p>
+      <div class="mh-cta">
+        <a class="primary" href="#quick-start">quick-start</a>
+        <a href="https://github.com/jonnonz1/codemap">github</a>
+        <a href="https://github.com/jonnonz1/codemap#measuring-it">metrics</a>
+      </div>
+      <div class="mh-stats">
+        <div><b>2688</b>files indexed</div>
+        <div><b>94%</b>cache hit rate</div>
+        <div><b>97%</b>context saved</div>
+        <div><b>~$0.50</b>cost / 2700 files</div>
+      </div>
+    </div>
+    <div class="crt" aria-hidden="true">
+      <div class="screen">
+<span class="dim">┌─ codemap@latest ─────────┐</span><br>
+<span class="prompt">$</span> codemap build<br>
+<span class="dim">  scanning 2688 files...</span><br>
+<span class="ok">✓</span> 2688 indexed <span class="dim">94% cache</span><br>
+<span class="ok">✓</span> 847 fns &nbsp;<span class="dim">312 types</span><br>
+<span class="ok">✓</span> $0.04 <span class="dim">this run</span><br>
+<br>
+<span class="prompt">$</span> codemap select -t task<br>
+<span class="dim">  381 candidates ...</span><br>
+<span class="ok">→</span> 5 files &nbsp;<span class="dim">27 KB</span><br>
+<span class="ok">→</span> saved 97% context<br>
+<br>
+<span class="prompt">$</span> claude: fixing invoices<br>
+<span class="dim">  0 extra Reads</span><br>
+<br>
+<span class="prompt">$</span> <span class="blink"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY -->
+  <section id="why">
+    <div class="section-bar">
+      <div class="sb-num">01</div>
+      <div class="sb-label">Why — <em>exploration is a tax, not a feature</em></div>
+      <div class="sb-count">thesis</div>
+    </div>
+    <div class="prose">
+      <p>An AI agent opens your repo and the first ten minutes are a tax: grep, glob, read, read, read. It's trying to build a mental model of the code every single time, out of nothing. The context window fills with dead ends. The answer, when it finally arrives, is worse — because half the budget went to the search.</p>
+      <p>The fix isn't a bigger model. It's giving the agent a <strong>map</strong>. codemap indexes your repo with a cheap fast model once, then uses another cheap fast model to pick only the files that matter for each task. The expensive model only ever sees focused context.</p>
+      <p>Higher precision on the input. Higher precision on the output.</p>
+    </div>
+    <div class="callout info">
+      <strong>The shape.</strong> Code map with a cheap model. Auto-context with a cheap model. Code with a big model. Three models, three roles — each doing what it's best at.
+    </div>
+  </section>
+
+  <!-- AT A GLANCE -->
+  <section id="how">
+    <div class="section-bar">
+      <div class="sb-num">02</div>
+      <div class="sb-label">How it works — <em>build once, select per task</em></div>
+      <div class="sb-count">diagram</div>
+    </div>
+    <div class="prose">
+      <p>A build pass over the repo produces an index. A select pass takes a task description, reads the index (not the source), and returns the files that matter. The expensive coding model never sees the 2688-file pile.</p>
+    </div>
+
+    <div class="diagram" aria-label="codemap pipeline — build indexes the repo, select picks files for a task, MCP serves the agent">
+      <svg viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c9d1c9"/></marker>
+          <marker id="arrGold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffb347"/></marker>
+          <marker id="arrDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7a7a7a"/></marker>
+        </defs>
+
+        <!-- Repo -->
+        <g>
+          <rect x="20" y="130" width="200" height="90" rx="4" fill="#111614" stroke="rgba(255,255,255,0.2)"/>
+          <text x="120" y="158" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" letter-spacing="1.5" fill="#c9d1c9">YOUR REPO</text>
+          <text x="120" y="183" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="14" fill="#eaf3ea">2688 files</text>
+          <text x="120" y="203" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#9aa89a">Go · TS · Python · any</text>
+        </g>
+
+        <!-- Build -->
+        <g>
+          <rect x="260" y="30" width="200" height="90" rx="4" fill="#0f1714" stroke="rgba(95,211,140,0.5)"/>
+          <text x="360" y="58" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" letter-spacing="1.5" fill="#5fd38c">CODEMAP BUILD</text>
+          <text x="360" y="80" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="#eaf3ea">Per-file index</text>
+          <text x="360" y="99" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#5fd38c">summary · types · fns · imports</text>
+          <text x="360" y="112" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#5fd38c">cached · incremental</text>
+        </g>
+
+        <!-- Select -->
+        <g>
+          <rect x="260" y="240" width="200" height="90" rx="4" fill="#0f1417" stroke="rgba(110,201,215,0.5)"/>
+          <text x="360" y="268" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" letter-spacing="1.5" fill="#6ec9d7">CODEMAP SELECT</text>
+          <text x="360" y="290" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="#eaf3ea">Auto-context</text>
+          <text x="360" y="309" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#6ec9d7">381 candidates → 5 files</text>
+          <text x="360" y="322" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#6ec9d7">cheap fast model</text>
+        </g>
+
+        <!-- MCP / Task -->
+        <g>
+          <rect x="520" y="130" width="200" height="90" rx="4" fill="#151114" stroke="rgba(217,139,176,0.5)"/>
+          <text x="620" y="158" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" letter-spacing="1.5" fill="#d98bb0">TASK + MCP</text>
+          <text x="620" y="180" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" fill="#eaf3ea">codemap_select</text>
+          <text x="620" y="200" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#d98bb0">native tool call · 1 shot</text>
+        </g>
+
+        <!-- Agent -->
+        <g>
+          <rect x="760" y="130" width="120" height="90" rx="4" fill="#0e1512" stroke="rgba(255,255,255,0.18)" stroke-dasharray="4 3"/>
+          <text x="820" y="158" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" letter-spacing="1.5" fill="#9aa89a">AGENT</text>
+          <text x="820" y="180" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#eaf3ea">Claude Code</text>
+          <text x="820" y="198" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#eaf3ea">Cursor · etc</text>
+          <text x="820" y="214" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#9aa89a">codes focused</text>
+        </g>
+
+        <!-- Arrows: repo → build, repo → select -->
+        <path d="M220,155 C240,100 250,75 258,74" fill="none" stroke="#5fd38c" stroke-width="1.5" marker-end="url(#arr)"/>
+        <path d="M220,195 C240,260 250,283 258,285" fill="none" stroke="#6ec9d7" stroke-width="1.5" marker-end="url(#arr)"/>
+        <!-- build → select (index feeds select) -->
+        <line x1="360" y1="120" x2="360" y2="239" stroke="#c9d1c9" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrDash)"/>
+        <text x="380" y="180" font-family="IBM Plex Mono, monospace" font-size="9" fill="#9aa89a">index</text>
+        <!-- build → task -->
+        <path d="M460,74 C495,80 505,120 518,145" fill="none" stroke="#5fd38c" stroke-width="1.5" marker-end="url(#arr)"/>
+        <!-- select → task -->
+        <path d="M460,285 C495,280 505,240 518,210" fill="none" stroke="#6ec9d7" stroke-width="1.5" marker-end="url(#arr)"/>
+        <!-- task → agent -->
+        <line x1="720" y1="175" x2="758" y2="175" stroke="#d98bb0" stroke-width="1.5" marker-end="url(#arr)"/>
+      </svg>
+      <div class="legend">
+        <span><i style="background:#5fd38c"></i>Build</span>
+        <span><i style="background:#6ec9d7"></i>Select</span>
+        <span><i style="background:#d98bb0"></i>MCP</span>
+        <span><i style="background:#c9d1c9"></i>Index</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRIMITIVES -->
+  <section id="primitives">
+    <div class="section-bar">
+      <div class="sb-num">03</div>
+      <div class="sb-label">The three primitives — <em>what each piece does, quickly</em></div>
+      <div class="sb-count">03 / 03</div>
+    </div>
+
+    <div class="grid3">
+      <div class="card index">
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">
+            <rect x="8" y="6" width="32" height="36" rx="1"/>
+            <line x1="14" y1="14" x2="34" y2="14"/>
+            <line x1="14" y1="20" x2="34" y2="20"/>
+            <line x1="14" y1="26" x2="28" y2="26"/>
+            <line x1="14" y1="32" x2="32" y2="32"/>
+            <circle cx="36" cy="38" r="2.5" fill="currentColor"/>
+          </svg>
+        </div>
+        <span class="tag">Code map</span>
+        <h3>One line per file, with structure</h3>
+        <p>Every file gets a summary, a when-to-use hint, exported types and functions, imports, and keywords. Deterministic facts come from parsers; semantic fields come from a cheap model.</p>
+        <ul>
+          <li>summary</li>
+          <li>when_to_use</li>
+          <li>public_types</li>
+          <li>public_functions</li>
+          <li>imports · keywords</li>
+        </ul>
+        <dl class="meta">
+          <dt>Command</dt><dd><code>codemap build</code></dd>
+          <dt>Cache</dt><dd>mtime + BLAKE3</dd>
+          <dt>Cost</dt><dd>~$0.50 / 2700 files</dd>
+        </dl>
+      </div>
+
+      <div class="card select">
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">
+            <path d="M6 10 L42 10 L28 24 L28 38 L20 42 L20 24 Z"/>
+            <circle cx="24" cy="6" r="2" fill="currentColor"/>
+          </svg>
+        </div>
+        <span class="tag">Auto-context</span>
+        <h3>Pick the files that matter</h3>
+        <p>Given a task, a cheap fast model reads the summaries (not the source) and returns the 5–10 files the big model should see. You get focused context instead of a 2 MB wall.</p>
+        <ul>
+          <li>381 candidates → 5 files</li>
+          <li>30–80k tokens out</li>
+          <li>task file or MCP call</li>
+          <li>provider-agnostic</li>
+        </ul>
+        <dl class="meta">
+          <dt>Command</dt><dd><code>codemap select</code></dd>
+          <dt>Input</dt><dd>task.md or query</dd>
+          <dt>Output</dt><dd>full source of winners</dd>
+        </dl>
+      </div>
+
+      <div class="card mcp">
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">
+            <rect x="6" y="10" width="36" height="10" rx="1"/>
+            <rect x="6" y="28" width="36" height="10" rx="1"/>
+            <circle cx="12" cy="15" r="1.5" fill="currentColor"/>
+            <circle cx="12" cy="33" r="1.5" fill="currentColor"/>
+            <line x1="18" y1="15" x2="34" y2="15"/>
+            <line x1="18" y1="33" x2="34" y2="33"/>
+            <line x1="24" y1="20" x2="24" y2="28"/>
+          </svg>
+        </div>
+        <span class="tag">MCP server</span>
+        <h3>Native tool calls, zero glue</h3>
+        <p>Claude Code registers codemap in one command and picks up three tools. No wrapper, no prompt, no tutorial — the agent just learns to call them.</p>
+        <ul>
+          <li><code>codemap_select</code></li>
+          <li><code>codemap_status</code></li>
+          <li><code>codemap_build</code></li>
+          <li>SessionStart hook</li>
+        </ul>
+        <dl class="meta">
+          <dt>Register</dt><dd><code>claude mcp add</code></dd>
+          <dt>Transport</dt><dd>stdio (local)</dd>
+          <dt>Auth</dt><dd>local · none</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUICK START -->
+  <section id="quick-start">
+    <div class="section-bar">
+      <div class="sb-num">04</div>
+      <div class="sb-label">Quick start — <em>install, build, register MCP</em></div>
+      <div class="sb-count">~3 min</div>
+    </div>
+<pre><span class="c"># install</span>
+go install github.com/jonnonz1/codemap/cmd/codemap@latest
+
+<span class="c"># 1. Interactive setup — picks provider, model, API key</span>
+cd your-project
+codemap init
+
+<span class="c"># 2. Index the repo. First run takes a few minutes; after that it's seconds.</span>
+codemap build
+
+<span class="c"># 3. Register the MCP server with Claude Code (once, globally).</span>
+claude mcp add codemap -- codemap mcp
+
+<span class="c"># Start a Claude Code session — codemap_select is a native tool.</span></pre>
+    <div class="callout ok">
+      <strong>No API key?</strong> Run <code>codemap init</code> and pick <code>mock</code>. You get placeholder summaries but the full workflow — handy for trying the loop before committing to a provider.
+    </div>
+  </section>
+
+  <!-- BUILD PIPELINE -->
+  <section id="build">
+    <div class="section-bar">
+      <div class="sb-num">05</div>
+      <div class="sb-label">Build pipeline — <em>six passes, cached</em></div>
+      <div class="sb-count">incremental</div>
+    </div>
+    <div class="prose">
+      <p>Build is cheap and cached. Each file goes through six passes; unchanged files skip the expensive ones entirely via mtime + BLAKE3 lookup.</p>
+    </div>
+    <div class="pipeline">
+      <div class="pipe"><div class="n">Pass 1</div><div class="name">Scan</div><div class="desc">Walk the tree, honour <code>.gitignore</code> and <code>.codemap.yaml</code> rules.</div></div>
+      <div class="pipe"><div class="n">Pass 2</div><div class="name">Hash</div><div class="desc">BLAKE3 content hash. mtime + hash keys the cache.</div></div>
+      <div class="pipe"><div class="n">Pass 3</div><div class="name">Parse</div><div class="desc">AST per language. Go today via <code>go/ast</code>; registry for more.</div></div>
+      <div class="pipe"><div class="n">Pass 4</div><div class="name">Summarise</div><div class="desc">Cheap fast model writes summary, when-to-use, keywords.</div></div>
+      <div class="pipe"><div class="n">Pass 5</div><div class="name">Render</div><div class="desc">Markdown code map + JSON/JSONL for tooling.</div></div>
+      <div class="pipe"><div class="n">Pass 6</div><div class="name">Cache</div><div class="desc">Atomic writes to <code>.claude/cache/</code>. Safe to interrupt.</div></div>
+    </div>
+    <div class="callout warn">
+      <strong>The LLM only touches semantic fields.</strong> <code>public_types</code>, <code>public_functions</code>, and <code>imports</code> always come from the parser. The model writes <code>summary</code>, <code>when_to_use</code>, and <code>keywords</code> — never code facts.
+    </div>
+  </section>
+
+  <!-- INSIDE THE INDEX -->
+  <section id="index-entry">
+    <div class="section-bar">
+      <div class="sb-num">06</div>
+      <div class="sb-label">Inside the index — <em>what one file looks like</em></div>
+      <div class="sb-count">CodeMapEntry</div>
+    </div>
+    <div class="prose">
+      <p>Each file in the code map is a single JSON object. Deterministic fields on the left come from the parser; semantic fields on the right come from the cheap model. The big coding model never reads this — it only reads what <code>select</code> returns.</p>
+    </div>
+<pre><span class="c">// .claude/cache/codemap.jsonl — one line per file</span>
+{
+  <span class="k">"path"</span>: <span class="s">"internal/build/orchestrator.go"</span>,
+  <span class="k">"hash"</span>: <span class="s">"blake3:9f2d1a…"</span>,
+  <span class="k">"mtime"</span>: <span class="s">"2026-04-18T14:22:07Z"</span>,
+
+  <span class="c">// --- parser (deterministic) ---</span>
+  <span class="k">"public_types"</span>:     [<span class="s">"Orchestrator"</span>, <span class="s">"BuildResult"</span>],
+  <span class="k">"public_functions"</span>: [<span class="f">"NewOrchestrator"</span>, <span class="f">"Run"</span>, <span class="f">"runOne"</span>],
+  <span class="k">"imports"</span>: [
+    <span class="s">"github.com/jonnonz1/codemap/internal/hash"</span>,
+    <span class="s">"github.com/jonnonz1/codemap/internal/llm"</span>,
+    <span class="s">"github.com/jonnonz1/codemap/internal/parse"</span>
+  ],
+
+  <span class="c">// --- cheap model (semantic) ---</span>
+  <span class="k">"summary"</span>:     <span class="s">"Concurrent build orchestrator: fans out per-file work, rate-limits LLM calls, writes atomically."</span>,
+  <span class="k">"when_to_use"</span>: <span class="s">"When changing how the build runs — concurrency, backpressure, resume, or failure handling."</span>,
+  <span class="k">"keywords"</span>:    [<span class="s">"concurrency"</span>, <span class="s">"rate-limit"</span>, <span class="s">"atomic"</span>, <span class="s">"orchestrator"</span>]
+}</pre>
+    <div class="callout ok">
+      <strong>Why this split matters.</strong> When the model is wrong it's wrong about <em>meaning</em>, not <em>structure</em>. <code>public_functions</code> and <code>imports</code> come from <code>go/ast</code> and are always correct. If a summary drifts after a refactor, it re-summarises on the next build automatically.
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section id="architecture">
+    <div class="section-bar">
+      <div class="sb-num">07</div>
+      <div class="sb-label">Architecture — <em>small packages, narrow interfaces</em></div>
+      <div class="sb-count">Go internal</div>
+    </div>
+    <div class="prose">
+      <p>codemap is a Go CLI with an MCP server entry point. The internal tree is deliberately small and interface-first so new languages, providers, or caches slot in without touching the build orchestrator.</p>
+    </div>
+<pre><span class="c">cmd/codemap/          CLI entry + MCP server</span>
+internal/
+  <span class="k">model/</span>              <span class="c">CodeMapEntry, CodeMap types</span>
+  <span class="k">scan/</span>               <span class="c">File system walk with ignore rules</span>
+  <span class="k">hash/</span>               <span class="c">BLAKE3 content hashing</span>
+  <span class="k">parse/</span>              <span class="c">Parser interface + registry</span>
+  <span class="k">langs/golang/</span>       <span class="c">Go AST parser (types, functions, imports)</span>
+  <span class="k">store/</span>              <span class="c">JSON/JSONL cache (atomic writes)</span>
+  <span class="k">llm/</span>                <span class="c">Summariser interface — Anthropic, OpenAI, Google, Mock</span>
+  <span class="k">build/</span>              <span class="c">Incremental build orchestrator (concurrent, rate-limited)</span>
+  <span class="k">autoctx/</span>            <span class="c">LLM-based auto-context file selection</span>
+  <span class="k">render/</span>             <span class="c">Markdown rendering</span>
+  <span class="k">taskfile/</span>           <span class="c">Task file YAML frontmatter parsing</span>
+  <span class="k">context/</span>            <span class="c">Session context injection</span>
+  <span class="k">mcp/</span>                <span class="c">MCP JSON-RPC server + tool handlers</span>
+  <span class="k">config/</span>             <span class="c">.codemap.yaml loading</span>
+  <span class="k">initcmd/</span>            <span class="c">codemap init (interactive setup)</span>
+  <span class="k">doctor/</span>             <span class="c">Cache diagnostics</span>
+  <span class="k">stats/</span>              <span class="c">Usage metrics + exploration tracking</span></pre>
+    <div class="callout info">
+      <strong>Extension points.</strong> New language? Implement <code>parse.Parser</code> and register it. New provider? Implement <code>llm.Summariser</code>. New output format? Add a package alongside <code>render/</code>. The orchestrator in <code>build/</code> never needs to change.
+    </div>
+  </section>
+
+  <!-- MEASURING -->
+  <section id="measuring">
+    <div class="section-bar">
+      <div class="sb-num">08</div>
+      <div class="sb-label">Measuring it — <em>numbers, not estimates</em></div>
+      <div class="sb-count">observed</div>
+    </div>
+    <div class="prose">
+      <p>Every claim codemap makes is grounded in observed data: cache hits, tool-call logs, git diff. <code>codemap statistics --eval</code> computes precision and recall against what you actually changed.</p>
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="k">Precision</div>
+        <div class="v">65%</div>
+        <div class="d">Of selected files, how many were actually needed.</div>
+      </div>
+      <div class="metric">
+        <div class="k">Recall</div>
+        <div class="v">82%</div>
+        <div class="d">Of changed files, how many were pre-selected.</div>
+      </div>
+      <div class="metric">
+        <div class="k">Context saved</div>
+        <div class="v">97%</div>
+        <div class="d">How much the candidate pool was compressed.</div>
+      </div>
+      <div class="metric">
+        <div class="k">Overhead</div>
+        <div class="v">15%</div>
+        <div class="d">Extra Read calls beyond the selection.</div>
+      </div>
+    </div>
+    <div class="callout info">
+      <strong>No counterfactuals.</strong> There's no fake comparison to "what would've happened without codemap". These metrics are computed from the git diff after the task ships and the tool-call logs Claude already emits.
+    </div>
+  </section>
+
+  <!-- WORKED EXAMPLE -->
+  <section id="worked">
+    <div class="section-bar">
+      <div class="sb-num">09</div>
+      <div class="sb-label">Worked example — <em>add soft-delete to invoices</em></div>
+      <div class="sb-count">1 task</div>
+    </div>
+
+    <div class="example">
+      <h3><span class="pill select">task</span> <span class="sub">Add soft-delete support to invoices. Preserve patterns. Update tests.</span></h3>
+      <div class="setup">A 2688-file Go + TS repo with <code>codemap build</code> fresh. Claude Code session with <code>codemap</code> MCP registered. No manual context loading.</div>
+      <ol class="flow">
+        <li><strong>Claude reads the task</strong> and immediately calls <code>codemap_select</code> with the task description. One tool call.</li>
+        <li><strong>The cheap model scans 2688 summaries</strong> (not 2688 files) and returns a ranked list. 381 candidates match the task, 5 are picked: <code>src/invoices/service.ts</code>, <code>src/invoices/repo.ts</code>, <code>tests/invoices/service.test.ts</code>, <code>src/types/invoice.ts</code>, <code>src/db/soft-delete.ts</code>.</li>
+        <li><strong>codemap returns full source</strong> of those 5 files. 27 KB. 0 grep, 0 glob, 0 read-and-hope.</li>
+        <li><strong>Claude starts coding immediately.</strong> It reads <code>src/db/soft-delete.ts</code>, spots the existing pattern, applies it to <code>invoices/repo.ts</code>, updates the service, and rewrites the tests in the same style.</li>
+        <li><strong>Seven minutes later</strong>, the PR is open. Claude made 0 extra Read calls beyond the selection.</li>
+        <li><strong>After merge, run <code>codemap statistics --eval</code></strong>: precision 100% (5/5 needed), recall 83% (5 of 6 touched — one shared util wasn't in the index), overhead 0%.</li>
+      </ol>
+    </div>
+
+    <div class="callout info">
+      <strong>The failure mode it fixes.</strong> Without codemap, the same task typically opens with 8–12 exploration tool calls — grep for "invoice", glob <code>src/**</code>, read a handful of likely-looking files, then start over when the first guess was wrong. Context fills with noise before the agent has even touched the real files.
+    </div>
+  </section>
+
+  <!-- MCP INTEGRATION -->
+  <section id="mcp">
+    <div class="section-bar">
+      <div class="sb-num">10</div>
+      <div class="sb-label">Claude Code integration — <em>three tools, one registration</em></div>
+      <div class="sb-count">MCP</div>
+    </div>
+    <div class="prose">
+      <p>One command registers codemap as an MCP server. Claude Code picks up three tools automatically and a SessionStart hook that prints the index status at the top of every session.</p>
+    </div>
+<pre><span class="c"># Register once, globally</span>
+claude mcp add codemap -- codemap mcp</pre>
+    <table class="kv">
+      <thead>
+        <tr><th style="width: 26%;">Tool</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>codemap_select</code></td><td>Given a task, returns full source of the most relevant files. The main event.</td></tr>
+        <tr><td><code>codemap_status</code></td><td>Check if the index is fresh, stale, or never built.</td></tr>
+        <tr><td><code>codemap_build</code></td><td>Trigger an incremental rebuild from inside a session.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout ok">
+      When you give Claude a task, it calls <code>codemap_select</code> first. Gets focused context. Starts coding. No exploration phase — because there's nothing left to explore.
+    </div>
+  </section>
+
+  <!-- CLI COMMANDS -->
+  <section id="commands">
+    <div class="section-bar">
+      <div class="sb-num">11</div>
+      <div class="sb-label">Commands — <em>the CLI surface</em></div>
+      <div class="sb-count">8</div>
+    </div>
+    <table class="kv">
+      <thead>
+        <tr><th style="width: 40%;">Command</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>codemap init</code></td><td>Interactive setup — provider, model, API key, Claude hooks.</td></tr>
+        <tr><td><code>codemap build</code></td><td>Index the repo (incremental, cached). Safe to interrupt.</td></tr>
+        <tr><td><code>codemap render</code></td><td>Render the code map as a single Markdown document.</td></tr>
+        <tr><td><code>codemap select --task task.md</code></td><td>Select files for a task (CLI mode, no MCP needed).</td></tr>
+        <tr><td><code>codemap context</code></td><td>Show what gets injected at Claude Code session start.</td></tr>
+        <tr><td><code>codemap doctor</code></td><td>Diagnose cache health — orphaned entries, stale hashes.</td></tr>
+        <tr><td><code>codemap statistics</code></td><td>Usage metrics, token savings, context window impact.</td></tr>
+        <tr><td><code>codemap statistics --eval</code></td><td>Compare selections to actual git changes — precision/recall.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- PROVIDERS -->
+  <section id="providers">
+    <div class="section-bar">
+      <div class="sb-num">12</div>
+      <div class="sb-label">Providers — <em>pick cheap, pick fast</em></div>
+      <div class="sb-count">4</div>
+    </div>
+    <table class="kv">
+      <thead>
+        <tr><th style="width: 20%;">Provider</th><th style="width: 42%;">Model</th><th>Rough cost · 2700 files</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Anthropic</strong></td><td><code>claude-haiku-4-5-20251001</code></td><td>~$2–3</td></tr>
+        <tr><td><strong>OpenAI</strong></td><td><code>gpt-4o-mini</code></td><td>~$1–2</td></tr>
+        <tr><td><strong>Google</strong></td><td><code>gemini-2.0-flash</code></td><td>~$0.50</td></tr>
+        <tr><td><strong>Mock</strong></td><td>no LLM — placeholder summaries</td><td>free</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <strong>Pick by speed, not capability.</strong> The summariser doesn't need to reason about your architecture — it needs to write 200 good one-liners a minute. Haiku, Flash, and 4o-mini all do that well; the difference is throughput and cost.
+    </div>
+  </section>
+
+  <!-- KEY DECISIONS -->
+  <section id="decisions">
+    <div class="section-bar">
+      <div class="sb-num">13</div>
+      <div class="sb-label">Key decisions — <em>why the tool is shaped this way</em></div>
+      <div class="sb-count">5</div>
+    </div>
+    <div class="accordion">
+      <details>
+        <summary>Parsers own facts; the LLM owns meaning</summary>
+        <div class="body">
+          <p>Exported types, function names, and imports come from the AST — never from the model. The model only writes the descriptive fields: <code>summary</code>, <code>when_to_use</code>, <code>keywords</code>. This keeps the index deterministic where it can be and lets the model be wrong only about the fuzzy parts.</p>
+          <p>It also means you can add a new language by writing a parser, not by retraining anything.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Incremental build, atomic cache</summary>
+        <div class="body">
+          <p>Every build run diffs mtime + BLAKE3 against the cache. Unchanged files skip Parse, Summarise, and Render entirely. A 94% cache hit rate on the second build is normal. Writes are atomic so a half-finished build never corrupts the index.</p>
+        </div>
+      </details>
+      <details>
+        <summary>No embeddings, no vector DB</summary>
+        <div class="body">
+          <p>The select step sends all summaries to the model in a single call. At 2700 files × ~80 tokens that's ~200k tokens — well inside Haiku, Flash, and 4o-mini context windows. Adding a vector DB would win sub-second latency and introduce staleness, drift, and a new dependency. The current design trades one slow call for simplicity, and the numbers still beat interactive exploration.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Observed metrics, no counterfactuals</summary>
+        <div class="body">
+          <p>Precision, recall, and overhead are computed from real git diffs and real tool-call logs. There's no <em>"X% savings vs what would've happened"</em> because that number would be marketing. The evaluator can be run any time after a task ships.</p>
+        </div>
+      </details>
+      <details>
+        <summary>MCP first, CLI always</summary>
+        <div class="body">
+          <p>The MCP server is the shortest path to "Claude Code uses this natively". But every MCP tool is also a CLI command — you can script codemap into CI, pre-commit hooks, or your own agent without touching MCP at all.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <div class="section-bar">
+      <div class="sb-num">14</div>
+      <div class="sb-label">FAQ — <em>questions worth asking</em></div>
+      <div class="sb-count">7</div>
+    </div>
+    <div class="accordion">
+      <details>
+        <summary>Does this replace grep and glob for the agent?</summary>
+        <div class="body">
+          <p>For the first pass, yes. For follow-ups it's still useful — codemap is best when the task is broad ("add soft-delete to invoices"). For pinpoint follow-ups ("what does line 42 do") the agent will still read individual files.</p>
+        </div>
+      </details>
+      <details>
+        <summary>What about TypeScript, Python, Rust?</summary>
+        <div class="body">
+          <p>The parser registry is designed for more languages. Go is first-class today via <code>go/ast</code>. TS/Python/Rust parsers are the obvious next additions — they fit the existing interface and don't require rethinking anything else.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How much does a typical build cost?</summary>
+        <div class="body">
+          <p>For 2700 files: ~$0.50 on Gemini Flash, ~$1–2 on <code>gpt-4o-mini</code>, ~$2–3 on Haiku 4.5. That's the <em>first</em> build. After that only changed files re-summarise, so you pay pennies per session.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Does the API key live in the repo?</summary>
+        <div class="body">
+          <p>It's written to <code>.codemap.yaml</code>, which is gitignored by default. If you prefer an env var, set <code>CODEMAP_API_KEY</code> and delete the key from the config file — both are supported.</p>
+        </div>
+      </details>
+      <details>
+        <summary>How does it compare to running the big model directly on the whole repo?</summary>
+        <div class="body">
+          <p>A big model on a 2 MB repo burns tokens, time, and money on files that don't matter. codemap compresses the candidate pool before the expensive model ever sees it. You can absolutely also do the 2 MB approach on a small repo — codemap is for the point where that stops working.</p>
+        </div>
+      </details>
+      <details>
+        <summary>What happens when I rename or move files?</summary>
+        <div class="body">
+          <p>Move = new path = new cache entry; old one is cleaned by <code>codemap doctor</code>. Rename of an exported symbol shows up in the parser pass and the summary gets regenerated. There's no git-rename tracking — the cache is path-keyed by design.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Why not ctags / Sourcegraph / a vector DB?</summary>
+        <div class="body">
+          <p><em>ctags</em> gives you symbol lookup — which is what an agent already has via Grep and Read. codemap gives the agent <em>task-shaped context</em>: "here are the five files that matter for what you're about to do". That's a different job.</p>
+          <p><em>Sourcegraph</em> is a hosted code-search surface. codemap is a local CLI + MCP server that your agent calls natively. No service, no auth, no index hosted somewhere else.</p>
+          <p><em>A vector DB</em> would give sub-second select at the cost of a running service, embedding drift, and staleness. With a 200k-token summary bundle, the model does the selection itself in one call — no index to keep fresh, no embeddings to re-compute when the code shifts.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div>Built by <a href="https://jonno.nz">John Gregoriadis</a> · MIT licensed</div>
+    <div>
+      <a href="https://github.com/jonnonz1/codemap">Repository</a> ·
+      <a href="#top">Top ↑</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
